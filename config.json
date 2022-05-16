@@ -1,0 +1,260 @@
+{
+    "sms": {
+        "phone_1": "09367462008",
+        "phone_2": "09991436984",
+        "interval": 300
+    },
+    "gprs": {
+        "apn": "mtnirancell",
+        "url": "http://gw.abfascada.ir/ahv_rtu/getdata.php",
+        "interval": 300
+    },
+    "log": {
+        "interval": 300
+    },
+    "enc": {
+        "key": "00112233445566778899aabbccddeeff"
+    },
+    "sdi12": {
+        "en": 1,
+        "addr": "1"
+    },
+    "sensor_list":[
+        "pt",
+        "a1",
+        "a2",
+        "a3",
+        "c1",
+        "c2",
+        "ra",
+        "ra_1",
+        "ra_12",
+        "s1",
+        "s2",
+        "s3",
+        "s4",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s9"
+    ],
+    "sensors": {
+        "pt": {
+            "en": 1,
+            "disp_name": "pt100",
+            "unit": "c",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 1,
+            "sms_raw": 0,
+            "sms_ord": 1,
+            "high_th": null,
+            "low_th": null
+        },
+        "a1": {
+            "en": 1,
+            "disp_name": "adc_1",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": 7
+        },
+        "a2": {
+            "en": 1,
+            "disp_name": "adc_2",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": 3,
+            "low_th": 8
+        },
+        "a3": {
+            "en": 1,
+            "disp_name": "adc_3",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "c1": {
+            "en": 1,
+            "disp_name": "420_1",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "c2": {
+            "en": 1,
+            "disp_name": "420_2",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "ra": {
+            "en": 1,
+            "disp_name": "percip total",
+            "unit": "ml",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "ra_1": {
+            "en": 1,
+            "disp_name": "percip 1h",
+            "unit": "ml",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "ra_12": {
+            "en": 1,
+            "disp_name": "percip 12h",
+            "unit": "ml",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s1": {
+            "en": 1,
+            "disp_name": "SDI #1",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 1,
+            "sms_raw": 0,
+            "sms_ord": 2,
+            "high_th": null,
+            "low_th": null
+        },
+        "s2": {
+            "en": 1,
+            "disp_name": "SDI #2",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s3": {
+            "en": 1,
+            "disp_name": "SDI #3",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 1,
+            "sms_raw": 1,
+            "sms_ord": 3,
+            "high_th": null,
+            "low_th": 7
+        },
+        "s4": {
+            "en": 1,
+            "disp_name": "SDI #4",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": 3,
+            "low_th": 8
+        },
+        "s5": {
+            "en": 1,
+            "disp_name": "SDI #5",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s6": {
+            "en": 1,
+            "disp_name": "SDI #6",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s7": {
+            "en": 1,
+            "disp_name": "SDI #7",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s8": {
+            "en": 1,
+            "disp_name": "SDI #8",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s9": {
+            "en": 1,
+            "disp_name": "SDI #9",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        }
+    }
+}

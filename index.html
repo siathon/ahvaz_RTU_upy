@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings</title>
+    <script>
+        var config;
+        function enable_high_th(sensor) {
+            if (document.getElementById(sensor + '_high_th_en').checked) {
+                document.getElementById(sensor + '_high_th').disabled = false;
+            } else {
+                document.getElementById(sensor + '_high_th').disabled = true;
+            }
+        }
+
+        function enable_low_th(sensor) {
+            if (document.getElementById(sensor + '_low_th_en').checked) {
+                document.getElementById(sensor + '_low_th').disabled = false;
+            } else {
+                document.getElementById(sensor + '_low_th').disabled = true;
+            }
+        }
+
+        function sms_order(){
+            const enabled = [];
+            for (const sensor of config.sensor_list) {
+                if (config.sensors[sensor].en && (config.sensors[sensor].sms_fun || config.sensors[sensor].sms_raw)){
+                    enabled.push(sensor);
+                }
+            }
+            let idx = 1;
+            for (const sensor of enabled) {
+                config.sensors[sensor].sms_ord = idx;
+                document.getElementById(sensor + '_sms_order').value = idx;
+                idx++;
+            }
+        }
+
+        function enable_sms(sensor, value) {
+            if (value == 0) {
+                document.getElementById(sensor + '_sms_order').value = '';
+                document.getElementById(sensor + '_sms_order').disabled = true;
+                config.sensors[sensor].sms_fun = false;
+                config.sensors[sensor].sms_raw = false;
+            }
+            else if(value == 1){
+                document.getElementById(sensor + '_sms_order').disabled = false;
+                config.sensors[sensor].sms_fun = true;
+                config.sensors[sensor].sms_raw = false;
+            }
+            else{
+                document.getElementById(sensor + '_sms_order').disabled = false;
+                config.sensors[sensor].sms_fun = true;
+                config.sensors[sensor].sms_raw = true;
+            }
+            sms_order();
+        }
+
+        function enable_sensor(sensor) {
+            config.sensors[sensor].en = document.getElementById(sensor + '_en').checked;
+            if (config.sensors[sensor].en) {
+                document.getElementById(sensor + '_disp_name').disabled = false;
+                document.getElementById(sensor + '_unit').disabled = false;
+                document.getElementById(sensor + '_a').disabled = false;
+                document.getElementById(sensor + '_b').disabled = false;
+                document.getElementById(sensor + '_' + 'sms_2').disabled = false;
+                document.getElementById(sensor + '_' + 'sms_1').disabled = false;
+                document.getElementById(sensor + '_' + 'sms_0').disabled = false;
+                enable_sms(sensor, config.sensors[sensor].sms_fun + config.sensors[sensor].sms_raw)
+                document.getElementById(sensor + '_high_th_en').disabled = false;
+                enable_high_th(sensor);
+                document.getElementById(sensor + '_low_th_en').disabled = false;
+                enable_low_th(sensor);
+            }
+            else {
+                document.getElementById(sensor + '_disp_name').disabled = true;
+                document.getElementById(sensor + '_unit').disabled = true;
+                document.getElementById(sensor + '_a').disabled = true;
+                document.getElementById(sensor + '_b').disabled = true;
+                document.getElementById(sensor + '_' + 'sms_2').disabled = true;
+                document.getElementById(sensor + '_' + 'sms_1').disabled = true;
+                document.getElementById(sensor + '_' + 'sms_0').disabled = true;
+                document.getElementById(sensor + '_' + 'sms_order').disabled = true;
+                document.getElementById(sensor + '_high_th_en').disabled = true;
+                document.getElementById(sensor + '_high_th').disabled = true;
+                document.getElementById(sensor + '_low_th_en').disabled = true;
+                document.getElementById(sensor + '_low_th').disabled = true;
+                sms_order();
+            }
+        }
+
+        function enable_sdi(){
+            config.sdi12.en = document.getElementById('sdi12_en').checked;
+            let sensor_list = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']
+            if (config.sdi12.en) {
+                document.getElementById('sdi12_addr').disabled = false;
+                document.getElementById('sdi12_scan').disabled = false;
+                document.getElementById('sdi12_change').disabled = false;
+                for(const sensor of sensor_list){
+                    document.getElementById(sensor + '_en').disabled = false
+                    document.getElementById(sensor + '_disp_name').disabled = false;
+                    document.getElementById(sensor + '_unit').disabled = false;
+                    document.getElementById(sensor + '_a').disabled = false;
+                    document.getElementById(sensor + '_b').disabled = false;
+                    document.getElementById(sensor + '_' + 'sms_2').disabled = false;
+                    document.getElementById(sensor + '_' + 'sms_1').disabled = false;
+                    document.getElementById(sensor + '_' + 'sms_0').disabled = false;
+                    enable_sms(sensor, config.sensors[sensor].sms_fun + config.sensors[sensor].sms_raw)
+                    document.getElementById(sensor + '_high_th_en').disabled = false;
+                    enable_high_th(sensor);
+                    document.getElementById(sensor + '_low_th_en').disabled = false;
+                    enable_low_th(sensor);
+                }
+            }
+            else{
+                document.getElementById('sdi12_addr').disabled = true;
+                document.getElementById('sdi12_scan').disabled = true;
+                document.getElementById('sdi12_change').disabled = true;
+                for (const sensor of sensor_list) {
+                    document.getElementById(sensor + '_en').disabled = true;
+                    document.getElementById(sensor + '_disp_name').disabled = true;
+                    document.getElementById(sensor + '_unit').disabled = true;
+                    document.getElementById(sensor + '_a').disabled = true;
+                    document.getElementById(sensor + '_b').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_2').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_1').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_0').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_order').disabled = true;
+                    document.getElementById(sensor + '_high_th_en').disabled = true;
+                    document.getElementById(sensor + '_high_th').disabled = true;
+                    document.getElementById(sensor + '_low_th_en').disabled = true;
+                    document.getElementById(sensor + '_low_th').disabled = true;
+                }
+                sms_order();
+            }
+        }
+
+        function load_config() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function() {
+                if (this.readyState == 4 && this.status == 200) {
+                    config = JSON.parse(xhttp.responseText);
+                    document.getElementById('gprs_url').value = config.gprs.url;
+                    document.getElementById('gprs_apn').value = config.gprs.apn;
+                    document.getElementById('gprs_interval').value = config.gprs.interval;
+
+                    document.getElementById('phone_1').value = config.sms.phone_1;
+                    document.getElementById('phone_2').value = config.sms.phone_2;
+                    document.getElementById('sms_interval').value = config.sms.interval;
+                    
+                    document.getElementById('log_interval').value = config.log.interval;
+
+                    document.getElementById('enc_key').value = config.enc.key;
+
+                    document.getElementById('sdi12_en').checked = config.sdi12.en;
+                    const addr = parseInt(config.sdi12.addr);
+                    if (addr > 0) {
+                        document.getElementById('sdi12_addr').value = addr;
+                    }
+                    if (!config.sdi12.en) {
+                        document.getElementById('sdi12_addr').disabled = true;
+                        document.getElementById('sdi12_scan').disabled = true;
+                        document.getElementById('sdi12_change').disabled = true;
+                    }
+                    var sensors_div = document.getElementById('sensors')
+                    for (const sensor of config.sensor_list) {
+                        let tag = document.createElement("strong");
+                        tag.style = "color: red;";
+                        tag.innerHTML = config.sensors[sensor].disp_name;
+                        sensors_div.appendChild(tag);
+                        sensors_div.appendChild(document.createElement('hr'));
+
+                        let div = document.createElement('div');
+                        div.className = "form-check";
+                        let input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "checkbox";
+                        input.value = "";
+                        input.id = `${sensor}_en`;
+                        input.name = `${sensor}_en`;
+                        input.checked = config.sensors[sensor].en;
+                        input.onclick = function(){enable_sensor(sensor)};
+                        div.appendChild(input);
+
+                        let label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_en`;
+                        label.innerHTML = "Enable";
+                        div.appendChild(label);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "mb-3";
+                        label = document.createElement('label');
+                        label.className = "form-label";
+                        label.htmlFor = `${sensor}_disp_name`;
+                        label.innerHTML = "Display name: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_disp_name`;
+                        input.value = config.sensors[sensor].disp_name;
+                        input.id = `${sensor}_disp_name`;
+                        input.style = "width: 100px;";
+                        div.appendChild(input);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "mb-3";
+                        label = document.createElement('label');
+                        label.className = "form-label";
+                        label.htmlFor = `${sensor}_unit`;
+                        label.innerHTML = "Unit: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_unit`;
+                        input.value = config.sensors[sensor].unit;
+                        input.id = `${sensor}_unit`;
+                        input.style = "width: 100px;";
+                        div.appendChild(input);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "mb-3";
+                        label = document.createElement('label');
+                        label.className = "form-label";
+                        label.htmlFor = `${sensor}_a`;
+                        label.innerHTML = "Equation: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_a`;
+                        input.value = config.sensors[sensor].a;
+                        input.id = `${sensor}_a`;
+                        input.style = "width: 100px;";
+                        div.appendChild(input);
+
+                        div.appendChild(document.createTextNode(' * x + '));
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_b`;
+                        input.value = config.sensors[sensor].b;
+                        input.id = `${sensor}_b`;
+                        input.style = "width: 100px;";
+                        div.appendChild(input);
+                        sensors_div.append(div);
+                        
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        label = document.createElement('label');
+                        label.innerHTML="Send in SMS: ";
+                        sensors_div.appendChild(label);
+
+                        div = document.createElement('div');
+                        div.className = "form-check form-check-inline";
+                        input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "radio";
+                        input.value = "0";
+                        input.name = `${sensor}_sms`
+                        input.id = `${sensor}_sms_0`;
+                        if (!config.sensors[sensor].sms_raw && !config.sensors[sensor].sms_fun) {
+                            input.checked = true;
+                        }
+                        input.onclick = function(){enable_sms(sensor, 0)};
+                        div.appendChild(input);
+
+                        label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_sms_0`;
+                        label.innerHTML = "Disabled";
+                        div.appendChild(label);
+                        sensors_div.append(div);
+
+                        div = document.createElement('div');
+                        div.className = "form-check form-check-inline";
+                        input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "radio";
+                        input.value = "1";
+                        input.name = `${sensor}_sms`
+                        input.id = `${sensor}_sms_1`;
+                        if (!config.sensors[sensor].sms_raw && config.sensors[sensor].sms_fun) {
+                            input.checked = true;
+                        }
+                        input.onclick = function(){enable_sms(sensor, 1)};
+                        div.appendChild(input);
+
+                        label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_sms_1`;
+                        label.innerHTML = "Equation output";
+                        div.appendChild(label);
+                        sensors_div.append(div);
+
+                        div = document.createElement('div');
+                        div.className = "form-check form-check-inline";
+                        input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "radio";
+                        input.value = "2";
+                        input.name = `${sensor}_sms`
+                        input.id = `${sensor}_sms_2`;
+                        if (config.sensors[sensor].sms_raw && config.sensors[sensor].sms_fun) {
+                            input.checked = true;
+                        }
+                        input.onclick = function(){enable_sms(sensor, 2)};
+                        div.appendChild(input);
+
+                        label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_sms_2`;
+                        label.innerHTML = "Equation and raw";
+                        div.appendChild(label);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "mb-3";
+                        label = document.createElement('label');
+                        label.className = "form-label";
+                        label.htmlFor = `${sensor}_sms_order`;
+                        label.innerHTML = "SMS order: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "number";
+                        input.name = `${sensor}_sms_order`;
+                        input.value = config.sensors[sensor].sms_ord;
+                        input.id = `${sensor}_sms_order`;
+                        input.style = "width: 70px;";
+                        input.onchange = function(){sms_order(sensor)};
+                        div.appendChild(input);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "form-check";
+                        input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "checkbox";
+                        input.checked = config.sensors[sensor].high_th
+                        input.id = `${sensor}_high_th_en`;
+                        input.onclick = function(){enable_high_th(sensor)};
+                        div.appendChild(input);
+
+                        label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_high_th_en`;
+                        label.innerHTML = "High Threshold: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_high_th`;
+                        input.value = config.sensors[sensor].high_th;
+                        input.id = `${sensor}_high_th`;
+                        input.style = "width: 70px;";
+                        div.appendChild(input);
+                        sensors_div.append(div);
+
+                        sensors_div.appendChild(document.createElement('br'));
+
+                        div = document.createElement('div');
+                        div.className = "form-check";
+                        input = document.createElement('input');
+                        input.className = "form-check-input";
+                        input.type = "checkbox";
+                        input.checked = config.sensors[sensor].low_th;
+                        input.id = `${sensor}_low_th_en`;
+                        input.onclick = function(){enable_low_th(sensor)};
+                        div.appendChild(input);
+
+                        label = document.createElement('label');
+                        label.className = "form-check-label";
+                        label.htmlFor = `${sensor}_low_th_en`;
+                        label.innerHTML = "Low Threshold: ";
+                        div.appendChild(label);
+
+                        input = document.createElement('input');
+                        input.type = "text";
+                        input.name = `${sensor}_low_th`;
+                        input.value = config.sensors[sensor].low_th;
+                        input.id = `${sensor}_low_th`;
+                        input.style = "width: 70px;";
+                        div.appendChild(input);
+                        sensors_div.append(div);
+
+
+                        sensors_div.appendChild(document.createElement('br'));
+                        sensors_div.appendChild(document.createElement('br'));
+                    }
+                
+                    for (const sensor of config.sensor_list) {
+                        enable_sensor(sensor);
+                    }
+                }
+            };
+            xhttp.open("GET", "/config.json", true);
+            xhttp.send();
+        }
+    
+        function submit_form(event) {
+            event.preventDefault();
+            document.getElementById('msg_txt').innerHTML = '';
+            const form_data = new FormData(event.target);
+            var data = {};
+            form_data.forEach((value, key) => data[key] = value);
+            fetch("/", {
+                method: "POST",
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify(data)
+            }).then(res => {
+                res.json().then(data => {
+                    msg_text = document.getElementById('msg_txt');
+                    if(data.result){
+                        msg_text.style = "color: green;";
+                    }
+                    else{
+                        msg_text.style = "color: red;";
+                    }
+                    msg_text.innerHTML = data.msg;
+                });
+            });
+        }
+    </script>
+</head>
+<body onload="load_config();">
+    <div class="mt-4 p-5 rounded">
+        <form method="post" id="config_form">
+            <div>
+                <button type="submit" style="margin-left: 100px;width: 70px;height: 30px;background-color: chartreuse;">save</button>
+                <button style="margin-left: 10px;width: 70px;height: 30px;background-color: orange;">restart</button>
+            </div>
+            <div id="msg">
+                <h3 id="msg_txt"></h3>
+            </div>
+            <div class="form-group">
+                <strong style="color: blue;">GPRS</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <label for="gprs_url">URL: </label>
+                    <input class="rounded-left" type="url" name="gprs_url" id="gprs_url" required>
+                    <br>
+                    <br>
+                    <label for="gprs_apn">APN: </label>
+                    <input class="rounded-left" type="text" name="gprs_apn" id="gprs_apn">
+                    <br>
+                    <br>
+                    <label for="gprs_interval">Interval: </label>
+                    <input class="rounded-left" type="number" name="gprs_interval" id="gprs_interval" style="width: 70px;">
+                    <label for="gprs_interval"> Seconds</label>
+                    <br>
+                    <br>
+                </div>
+
+                <strong style="color: blue;">SMS</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <label for="phone_1">Number #1: </label>
+                    <input class="rounded-left" type="text" name="phone_1" id="phone_1">
+                    <br>
+                    <br>
+                    <label for="phone_2">Number #2: </label>
+                    <input class="rounded-left" type="text" name="phone_2" id="phone_2">
+                    <br>
+                    <br>
+                    <label for="sms_interval">Interval: </label>
+                    <input class="rounded-left" type="number" name="sms_interval" id="sms_interval" style="width: 70px;">
+                    <label for="sms_interval"> Seconds</label>
+                    <br>
+                    <br>
+                </div>
+
+                <strong style="color: blue;">Log</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <label for="log_interval">Interval: </label>
+                    <input class="rounded-left" type="number" name="log_interval" id="log_interval" style="width: 70px;">
+                    <label for="log_interval"> Seconds</label>
+                    <br>
+                    <br>
+                </div>
+        
+                <strong style="color: blue;">Encryption</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <label for="enc_key">Key: 0x </label>
+                    <input class="rounded-left" type="text" name="enc_key" id="enc_key" style="width: 280px;">
+                    <br>
+                    <br>
+                </div>
+
+                <strong style="color: blue;">SDI-12</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="" id="sdi12_en" name="sdi12_en" onchange="enable_sdi();">
+                        <label class="form-check-label" for="sdi12_en">
+                             Enable
+                        </label>
+                    </div>
+                    <br>
+                    <button type="button" class="btn btn-primary" id="sdi12_scan" name="sdi12_scan">Scan</button>
+                    <label for="sdi12_addr">Sensor address: </label>
+                    <input class="rounded-left" type="number" name="sdi12_addr" id="sdi12_addr" style="width: 70px;">
+                    <button type="button" class="btn btn-primary" id="sdi12_change" name="sdi12_change">Change</button>
+                    <br>
+                    <br>
+                </div>
+
+                <strong style="color: blue;">Sensors</strong>
+                <hr>
+                <div style="margin-left: 50px;" id="sensors">
+
+                </div>
+            </div>
+        </form>
+    </div>
+    <script>
+        form = document.getElementById('config_form');
+        form.addEventListener('submit', submit_form);
+    </script>
+</body>
+</html>
