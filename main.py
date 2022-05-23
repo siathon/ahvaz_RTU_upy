@@ -1,8 +1,7 @@
-import micropython
 import json
 from sys import print_exception
 import _thread
-from microdot_asyncio import Microdot, redirect, send_file, Response
+from MicroWebSrv2 import *
 from time import sleep, sleep_ms, time
 from max31865 import MAX31865
 import machine
@@ -14,11 +13,11 @@ import sdcard
 import ubinascii
 import mpyaes
 from network import WLAN, AP_IF
-import gc
 import lvgl as lv
 from ili9XXX import ili9341
 import espidf as esp
-import urequests
+from umodbus.modbus import ModbusRTU
+
 
 Red='\033[0;31m'
 Green='\033[0;32m'
@@ -26,8 +25,9 @@ Yellow='\033[0;33m'
 Magenta='\033[0;35m'
 Cyan='\033[0;36m'
 White='\033[0;37m'
+
 lv.log_register_print_cb(print)
-disp = ili9341(mosi=11, miso=13, clk=12, cs=1, dc=9, rst=34, mhz=35, factor=32, hybrid=True, spihost=esp.VSPI_HOST, double_buffer=False)
+disp = ili9341(mosi=11, miso=13, clk=12, cs=1, dc=9, rst=34, backlight=10, backlight_on=1, mhz=40, factor=32, hybrid=True, spihost=esp.VSPI_HOST, double_buffer=False)
 
 _device_id = const(10132)
 _firmware_version = 0.1
@@ -35,11 +35,12 @@ _write_percip_interval = const(300)  # s
 _prcip_update_interval = const(30)   # s
 _sdi12_update_interval = const(30)   # s
 _pt100_update_interval = const(30)   # s
+_rs485_update_interval = const(30)   # s
 _check_update_interval = const(3600) # s
 _loc_request_interval  = const(43200)# s
 _ais_update_interval   = const(30)   # s
 _sms_check_interval    = const(300)  # s
-_get_time_interval     = const(86400) # s
+_get_time_interval     = const(86400)# s
 
 _sim800_tx = const(18)
 _sim800_rx = const(17)
@@ -47,6 +48,7 @@ _sim800_en = const(38)
 _sim800_pw = const(2)
 _rs485_tx  = const(36)
 _rs485_rx  = const(35)
+_rs485_baud = 9600
 
 ap = WLAN(AP_IF)
 ap.config(essid=f'AHV{_device_id}')
@@ -78,11 +80,13 @@ AIs = {'a1': machine.ADC(machine.Pin(8),  atten=machine.ADC.ATTN_11DB),
 
 uart = machine.UART(1, tx=_sim800_tx, rx=_sim800_rx, baudrate=115200)
 modem = SIM800L.Modem(uart, _sim800_pw, MODEM_POWER_ON_PIN=_sim800_en)
-rs_ctl = machine.Pin(45, machine.Pin.OUT)
-rs_ctl.value(1)
+
+modbus = ModbusRTU(0, uart, ctrl_pin=45)
 
 # wdt = machine.# wdt(timeout=30000)
 # wdt.feed()
+
+thread_lock = _thread.allocate_lock()
 
 def print_colored(text, color=Red):
     print(f'{color}{text}{White}')
@@ -99,7 +103,7 @@ def print_reset_cause():
     elif code == machine.DEEPSLEEP_RESET:
         print_colored('Deep sleep reset')
     elif code == machine.SOFT_RESET:
-        print_colored('Soft reser')
+        print_colored('Soft reset')
     else:
         print_colored('Unknown')
 
@@ -126,85 +130,97 @@ def load_config() -> dict:
     except:
         return {}
     
-app = Microdot()
+def delayed_restart():
+    sleep(1)
+    thread_lock.acquire()
+    machine.reset()
+    thread_lock.release()
+    
+app = MicroWebSrv2()
+app.NotFoundURL = '/'
+app.SetEmbeddedConfig()
 
-@app.route('/', methods=['GET', 'POST'])
-async def index(request):
-    if request.method == 'POST':
-        data = request.json
-        config = load_config()
-        try:
-            config['gprs']['url'] = data['gprs_url']
-            config['gprs']['apn'] = data['gprs_apn']
-            config['gprs']['interval'] = int(data['gprs_interval'])
-            
-            config['sms']['phone_1'] = data['phone_1']
-            config['sms']['phone_2'] = data['phone_2']
-            config['sms']['interval'] = int(data['sms_interval'])
-            
-            config['log']['interval'] = int(data['log_interval'])
-            
-            config['enc']['key'] = data['enc_key']
-            
-            config['sdi12']['en'] = 1 if 'sdi12_en' in data else 0
-            config['sdi12']['addr'] = data['sdi12_addr'] if 'sdi12_addr' in data else ''
-            
-            for sensor in config['sensor_list']:
-                if f'{sensor}_en' in data:
-                    config['sensors'][sensor]['en'] = 1
-                    config['sensors'][sensor]['disp_name'] = data[f'{sensor}_disp_name']
-                    config['sensors'][sensor]['unit'] = data[f'{sensor}_unit']
-                    config['sensors'][sensor]['a'] = round(float(data[f'{sensor}_a']), 2)
-                    config['sensors'][sensor]['b'] = round(float(data[f'{sensor}_b']), 2)
-                    if data[f'{sensor}_sms'] == '0':
-                        config['sensors'][sensor]['sms_fun'] = 0
-                        config['sensors'][sensor]['sms_raw'] = 0
-                        config['sensors'][sensor]['sms_ord'] = 0
-                    elif data[f'{sensor}_sms'] == '1':
-                        config['sensors'][sensor]['sms_fun'] = 1
-                        config['sensors'][sensor]['sms_raw'] = 0
-                        config['sensors'][sensor]['sms_ord'] = int(data[f'{sensor}_sms_order'])
-                    elif data[f'{sensor}_sms'] == '2':
-                        config['sensors'][sensor]['sms_fun'] = 1
-                        config['sensors'][sensor]['sms_raw'] = 1
-                        config['sensors'][sensor]['sms_ord'] = int(data[f'{sensor}_sms_order'])
-                        
-                    if f'{sensor}_high_th' in data:
-                        config['sensors'][sensor]['high_th'] = round(float(data[f'{sensor}_high_th']), 2)
-                    else:
-                        config['sensors'][sensor]['high_th'] = None
-                        
-                    if f'{sensor}_low_th' in data:
-                        config['sensors'][sensor]['low_th'] = round(float(data[f'{sensor}_low_th']), 2)
-                    else:
-                        config['sensors'][sensor]['low_th'] = None
+@WebRoute(GET, '/')
+def index(microWebSrv2, request):
+    request.Response.ReturnFile('index.html')
+
+@WebRoute(POST, '/')
+def save(microWebSrv2, request):
+    data = request.GetPostedJSONObject()
+    print(data)
+    config = load_config()
+    try:
+        config['gprs']['url'] = data['gprs_url']
+        config['gprs']['apn'] = data['gprs_apn']
+        config['gprs']['interval'] = int(data['gprs_interval'])
+        
+        config['sms']['phone_1'] = data['phone_1']
+        config['sms']['phone_2'] = data['phone_2']
+        config['sms']['interval'] = int(data['sms_interval'])
+        
+        config['log']['interval'] = int(data['log_interval'])
+        
+        config['enc']['key'] = data['enc_key']
+        
+        config['sdi12']['en'] = 1 if 'sdi12_en' in data else 0
+        config['sdi12']['addr'] = data['sdi12_addr'] if 'sdi12_addr' in data else ''
+        
+        config['rs485']['en'] = 1 if 'rs485_en' in data else 0
+        config['rs485']['addr'] = int(data['rs485_addr']) if 'rs485_addr' in data else 0
+        config['rs485']['baud'] = int(data['rs485_baud'])
+        
+        for sensor in config['sensor_list']:
+            if f'{sensor}_en' in data:
+                config['sensors'][sensor]['en'] = 1
+                config['sensors'][sensor]['disp_name'] = data[f'{sensor}_disp_name']
+                config['sensors'][sensor]['unit'] = data[f'{sensor}_unit']
+                config['sensors'][sensor]['a'] = round(float(data[f'{sensor}_a']), 2)
+                config['sensors'][sensor]['b'] = round(float(data[f'{sensor}_b']), 2)
+                if data[f'{sensor}_sms'] == '0':
+                    config['sensors'][sensor]['sms_fun'] = 0
+                    config['sensors'][sensor]['sms_raw'] = 0
+                    config['sensors'][sensor]['sms_ord'] = 0
+                elif data[f'{sensor}_sms'] == '1':
+                    config['sensors'][sensor]['sms_fun'] = 1
+                    config['sensors'][sensor]['sms_raw'] = 0
+                    config['sensors'][sensor]['sms_ord'] = int(data[f'{sensor}_sms_order'])
+                elif data[f'{sensor}_sms'] == '2':
+                    config['sensors'][sensor]['sms_fun'] = 1
+                    config['sensors'][sensor]['sms_raw'] = 1
+                    config['sensors'][sensor]['sms_ord'] = int(data[f'{sensor}_sms_order'])
+                    
+                if f'{sensor}_high_th' in data:
+                    config['sensors'][sensor]['high_th'] = round(float(data[f'{sensor}_high_th']), 2)
                 else:
-                    config['sensors'][sensor]['en'] = 0
-            save_config(config)
-            msg = 'config saved successfully.'
-            result = True
+                    config['sensors'][sensor]['high_th'] = None
+                    
+                if f'{sensor}_low_th' in data:
+                    config['sensors'][sensor]['low_th'] = round(float(data[f'{sensor}_low_th']), 2)
+                else:
+                    config['sensors'][sensor]['low_th'] = None
+            else:
+                config['sensors'][sensor]['en'] = 0
+        save_config(config)
+        msg = 'config saved successfully.'
+        result = True
 
-        except Exception as e:
-            print_colored("Exception from handle form:", Magenta)
-            print_exception(e)
-            msg = 'Failed to save config'
-            result = False
+    except Exception as e:
+        print_colored("Exception from handle form:", Magenta)
+        print_exception(e)
+        msg = 'Failed to save config'
+        result = False
 
-        return Response(body={'msg': msg, 'result': result})
-    return send_file('/index.html')
+    request.Response.ReturnOkJSON({'msg': msg, 'result': result})
+    
 
-@app.route('/config.json')
-async def config(request):
-    return send_file('config.json')
+@WebRoute(GET, '/config.json')
+def config(microWebSrv2, request):
+    request.Response.ReturnFile('config.json')
 
-@app.errorhandler(404)
-async def not_found(request):
-    return redirect('/')
-
-@app.route('/shutdown')
-async def shutdown(request):
-    request.app.shutdown()
-    return 'The server is shutting down...'
+@WebRoute(GET, '/restart')
+def restart(microWebSrv2, request):
+    _thread.start_new_thread(delayed_restart, ())
+    request.Response.ReturnOkJSON({'msg': 'Restarting device...', 'result': True})
 
 class Job:
     def __init__(self, name, func, args):
@@ -223,7 +239,6 @@ class Job:
 
 class App:
     def __init__(self):
-        self.thread_lock = _thread.allocate_lock()
         self.spi_lock = False
         self.uart_lock = False
         self.data = {}
@@ -236,6 +251,7 @@ class App:
         self.last_prcip_update = float('-inf')
         self.last_sdi12_update = float('-inf')
         self.last_pt100_update = float('-inf')
+        self.last_rs485_update = float('-inf')
         self.last_update_check = float('-inf')
         self.last_ais_update   = float('-inf')
         self.last_sms_check    = float('-inf')
@@ -248,6 +264,7 @@ class App:
         self.prcip_update_running = False
         self.sdi12_update_running = False
         self.pt100_update_running = False
+        self.rs485_update_running = False
         self.ais_update_running   = False
         self.sd_log_running       = False
         self.server_running       = False
@@ -283,8 +300,8 @@ class App:
         self.lcd_objs = {}
         
         self.time_timer = lv.timer_create(self.update_time, 1000, None)
-        self.pin_timer = machine.Timer(2)
-        self.pin_timer.init(mode=machine.Timer.PERIODIC, period=200, callback=self.scan_btns)
+        self.btn_timer = machine.Timer(2)
+        self.btn_timer.init(mode=machine.Timer.PERIODIC, period=200, callback=self.scan_btns)
         
     def update_time(self, timer):
         try:
@@ -302,12 +319,10 @@ class App:
             self.switch_uart_to('sim800')
 
             if not self.init_modem():
-                self.thread_lock.acquire()
                 self.last_get_time = time()
                 self.get_time_running = False
                 self.uart_lock = False
                 self.sim_handler_running = False
-                self.thread_lock.release()
                 return
             
             print_colored(f'running {self.sim800_jobs[0].name} job', Green)
@@ -318,7 +333,9 @@ class App:
                 print_exception(e)
             finally:
                 self.uart_lock = False
+                thread_lock.acquire()
                 self.sim800_jobs.pop(0)
+                thread_lock.release()
         
     def init_sensors(self):
         if self.config['sensors']['ra']['en']:
@@ -364,6 +381,16 @@ class App:
             
         if self.config['sensors']['c2']['en']:
             self.data["c2"] = {"raw": None, "scaled": None, "warning": None}
+        
+        if self.config['rs485']['en']:
+            modbus._addr_list = [self.config['rs485']['addr']]
+            _rs485_baud = self.config['rs485']['baud']
+            
+            if self.config['sensors']['rs_1']['en']:
+                self.data["rs_1"] = {"raw": None, "scaled": None, "warning": None}
+                
+            if self.config['sensors']['rs_2']['en']:
+                self.data["rs_2"] = {"raw": None, "scaled": None, "warning": None}
 
         self.pin_timer = machine.Timer(1)
         self.pin_timer.init(mode=machine.Timer.PERIODIC, period=100, callback=self.scan_pins)
@@ -397,28 +424,24 @@ class App:
         if self.cur_tab == 5:
             self.cur_tab = 0
         self.tabview.set_act(self.cur_tab, 0)
-#         if self.cur_tab == 4:
-#             ap.active(True)
-#             _thread.start_new_thread(app.run, (), {'debug':True, 'port':80})
-#             self.server_running = True
-#         elif self.server_running:
-#             app.server.close()
-#             ap.active(False)
-#             self.server_running = False
+        if self.cur_tab == 4:
+            ap.active(True)
+            app.StartManaged()
+        elif app.IsRunning:
+            app.Stop()
+            ap.active(False)
         
     def go_to_previous_tab(self):
         self.cur_tab -= 1
         if self.cur_tab == -1:
             self.cur_tab = 4
         self.tabview.set_act(self.cur_tab, 0)
-#         if self.cur_tab == 4:
-#             ap.active(True)
-#             _thread.start_new_thread(app.run, (), {'debug':True, 'port':80})
-#             self.server_running = True
-#         elif self.server_running:
-#             app.server.close()
-#             ap.active(False)
-#             self.server_running = False
+        if self.cur_tab == 4:
+            ap.active(True)
+            app.StartManaged()
+        elif app.IsRunning:
+            app.Stop()
+            ap.active(False)
             
     def init_percip_db(self):
         try:
@@ -434,16 +457,15 @@ class App:
             self.percip_cnt = int.from_bytes(self.db[keys[-1]], 'big')
         
     def update_percip(self):
-        self.thread_lock.acquire()
         self.prcip_update_running = True
-        self.thread_lock.release()
+
         try:
             a = self.config["sensors"]["ra"].get("a", 1.0)
             b = self.config["sensors"]["ra"].get("b", 0.0)
-#             gc.collect()
+
             tm = roundup(time())
-            self.thread_lock.acquire()
             pr_to = self.percip_cnt
+            thread_lock.acquire()
             keys = list(self.db)
             if len(keys) >= 300:
                 print_colored(f"dblen: {len(keys)} remove 10 keys from db", Cyan)
@@ -452,9 +474,10 @@ class App:
             self.db[tm.to_bytes(4, 'big')] = pr_to.to_bytes(4, 'big')
             self.db.flush()
             self.db_file.flush()
-            self.thread_lock.release()
             tm_1h = tm - 3600
+            
             # wdt.feed()
+            
             while tm > tm_1h:
                 b_tm = tm_1h.to_bytes(4, 'big')
                 if b_tm in self.db:
@@ -463,7 +486,9 @@ class App:
                 tm_1h += _write_percip_interval
             else:
                 pr_1h = 0
+                
             # wdt.feed()
+            
             tm_12 = tm - 43200
             while tm > tm_12:
                 b_tm = tm_12.to_bytes(4, 'big')
@@ -473,7 +498,7 @@ class App:
                 tm_12 += _write_percip_interval
             else:
                 pr_12 = 0
-            self.thread_lock.acquire()
+            
             self.data["ra"]["raw"] = round(pr_to, 2)
             self.data["ra"]["scaled"] = round(a * pr_to + b, 2)
             self.data["ra_1"]["raw"] = round(pr_1h, 2)
@@ -498,32 +523,29 @@ class App:
                 
             if self.config["sensors"]["ra_12"]["low_th"] and self.data["ra_12"]["scaled"] < float(self.config["sensors"]["ra_12"]["low_th"]):
                 self.add_sim800_job('send_alarm_sms', 'ra_12', False)
-            self.thread_lock.release()
-            
+            thread_lock.release()
         except Exception as e:
-            self.thread_lock.release()
             print_colored("Exception from percip handle:", Cyan)
             print_exception(e)
-            
-        self.thread_lock.acquire()
-        self.last_prcip_update = time()
-        self.prcip_update_running = False
-        self.thread_lock.release()
+        finally:
+            self.last_prcip_update = time()
+            self.prcip_update_running = False
+            if thread_lock.locked():
+                thread_lock.release()
     
     def zero_db(self):
-        self.thread_lock.acquire()
+        thread_lock.acquire()
         keys = list(self.db)
         for key in keys:
             del self.db[key]
         self.percip_cnt = 0
-        self.thread_lock.release()
         self.db.flush()
         self.db_file.flush()
+        thread_lock.release()
     
     def update_sdi(self):
-        self.thread_lock.acquire()
         self.sdi12_update_running = True
-        self.thread_lock.release()
+
         addr = str(self.config['sdi12'].get('addr', '0'))
         while True:
             try:
@@ -543,7 +565,7 @@ class App:
         
         if data:
             try:
-                self.thread_lock.acquire()
+                thread_lock.acquire()
                 for i in range(9):
                     if self.config['sensors'][f's{i+1}']['en']:
                         temp = f's{i+1}'
@@ -558,25 +580,23 @@ class App:
                         if self.config["sensors"][temp]["low_th"] and self.data[temp]["scaled"] < float(self.config["sensors"][temp]["low_th"]):
                             self.add_sim800_job('send_alarm_sms', temp, False)
 #                         self.lcd_objs[temp].set_text(f"{self.data[temp]['scaled']}")
-                self.thread_lock.release()
                 
             except Exception as e:
-                self.thread_lock.release()
                 print_colored(f"Exception from sdi12 update:", Cyan)
                 print_exception(e)
-        self.thread_lock.acquire()
-        self.last_sdi12_update = time()
-        self.sdi12_update_running = False
-        self.thread_lock.release()
+            finally:
+                self.last_sdi12_update = time()
+                self.sdi12_update_running = False
+                if thread_lock.locked():
+                    thread_lock.release()
                         
     def update_pt100(self):
-        self.thread_lock.acquire()
         self.pt100_update_running = True
-        self.thread_lock.release()
+
         try:
             a = self.config["sensors"]["pt"].get("a", 1.0)
             b = self.config["sensors"]["pt"].get("b", 0.0)
-#             gc.collect()
+
             while self.spi_lock:
                 sleep_ms(100)
             self.spi_lock = True
@@ -584,7 +604,7 @@ class App:
             tmp = pt.temperature
             print_colored(f'pt100: {tmp}', Cyan) 
             self.spi_lock = False
-            self.thread_lock.acquire()
+            thread_lock.acquire()
             self.data['pt']['raw'] = round(tmp, 2)
             self.data['pt']['scaled'] = round(a * tmp + b, 2)
             
@@ -593,19 +613,19 @@ class App:
             
             if self.config["sensors"]['pt']["low_th"] and self.data['pt']["scaled"] < float(self.config["sensors"]['pt']["low_th"]):
                 self.add_sim800_job('send_alarm_sms', 'pt', False)
-            self.thread_lock.release()
+
         except Exception as e:
             print_colored(f"Exception from pt100 handle:", Cyan)
             print_exception(e)
-        self.thread_lock.acquire()
-        self.last_pt100_update = time()
-        self.pt100_update_running = False
-        self.thread_lock.release()
-    
+        finally:
+            self.last_pt100_update = time()
+            self.pt100_update_running = False
+            if thread_lock.locked():
+                thread_lock.release()
+
     def update_ais(self):
-        self.thread_lock.acquire()
         self.ais_update_running = True
-        self.thread_lock.release()
+
         try:
             for sensor in ['a1', 'a2', 'a3']:
                 # wdt.feed()
@@ -618,16 +638,18 @@ class App:
                         sleep_ms(10)
                     tmp /= 10
                     tmp = tmp * 0.000004636636 - (tmp * 0.000000022)
-                    self.thread_lock.acquire()
+                    thread_lock.acquire()
                     self.data[sensor]['raw'] = round(tmp, 2)                
                     self.data[sensor]['scaled'] = round(a * tmp + b, 2)
                     print_colored(f'{sensor} : {self.data[sensor]}', Cyan)
-                    self.thread_lock.release()
+
                     if self.config["sensors"][sensor]["high_th"] and self.data[sensor]["scaled"] > float(self.config["sensors"][sensor]["high_th"]):
                         self.add_sim800_job('send_alarm_sms', sensor, True)
                     
                     if self.config["sensors"][sensor]["low_th"] and self.data[sensor]["scaled"] < float(self.config["sensors"][sensor]["low_th"]):
                         self.add_sim800_job('send_alarm_sms', sensor, False)
+                    
+                    thread_lock.release()
             for sensor in ['c1', 'c2']:
                 # wdt.feed()
                 if sensor in self.config['sensors'] and self.config['sensors'][sensor]['en']:
@@ -638,25 +660,75 @@ class App:
                         tmp += AIs[sensor].read_u16()
                         sleep_ms(10)
                     tmp /= 1200000
-                    self.thread_lock.acquire()
+                    thread_lock.acquire()
                     self.data[sensor]['raw'] = round(tmp, 2)                
                     self.data[sensor]['scaled'] = round(a * tmp + b, 2)
                     print_colored(f'{sensor} : {self.data[sensor]}', Cyan)
-                    self.thread_lock.release()
+                    
                     if self.config["sensors"][sensor]["high_th"] and self.data[sensor]["scaled"] > float(self.config["sensors"][sensor]["high_th"]):
                         self.add_sim800_job('send_alarm_sms', sensor, True)
                     
                     if self.config["sensors"][sensor]["low_th"] and self.data[sensor]["scaled"] < float(self.config["sensors"][sensor]["low_th"]):
                         self.add_sim800_job('send_alarm_sms', sensor, False)
+                    thread_lock.release()
         except Exception as e:
             print_colored(f"Exception from AIs handle:", Cyan)
             print_exception(e)
-        
-        self.thread_lock.acquire()
-        self.last_ais_update = time()
-        self.ais_update_running = False
-        self.thread_lock.release()
+        finally:
+            self.last_ais_update = time()
+            self.ais_update_running = False
+            if thread_lock.locked():
+                thread_lock.release()
+    
+    def update_rs485(self):
+        self.rs485_update_running = True
+
+        try:
+            a1 = self.config["sensors"]["rs_1"]["a"]
+            b1 = self.config["sensors"]["rs_1"]["b"]
+            a2 = self.config["sensors"]["rs_2"]["a"]
+            b2 = self.config["sensors"]["rs_2"]["b"]
+            addr = self.config['rs485']['addr']
+            while self.uart_lock:
+                sleep_ms(100)
+            self.uart_lock = True
+            self.switch_uart_to('rs485')
             
+            rs1, rs2 = modbus._itf.read_holding_registers(addr, 1, 2)
+            print_colored(f'rs485: {rs1} {rs2}', Cyan) 
+            self.uart_lock = False
+            
+            thread_lock.acquire()
+            if self.config["sensors"]["rs_1"]['en']:
+                self.data['rs_1']['raw'] = round(rs1, 2)
+                self.data['rs_1']['scaled'] = round(a1 * rs1 + b1, 2)
+                
+            if self.config["sensors"]["rs_2"]['en']:
+                self.data['rs_2']['raw'] = round(rs2, 2)
+                self.data['rs_2']['scaled'] = round(a2 * rs2 + b2, 2)
+            
+            if self.config["sensors"]['rs_1']["high_th"] and self.data['rs_1']["scaled"] > float(self.config["sensors"]['rs_1']["high_th"]):
+                self.add_sim800_job('send_alarm_sms', 'rs_1', True)
+            
+            if self.config["sensors"]['rs_1']["low_th"] and self.data['rs_1']["scaled"] < float(self.config["sensors"]['rs_1']["low_th"]):
+                self.add_sim800_job('send_alarm_sms', 'rs_1', False)
+                
+            if self.config["sensors"]['rs_2']["high_th"] and self.data['rs_2']["scaled"] > float(self.config["sensors"]['rs_2']["high_th"]):
+                self.add_sim800_job('send_alarm_sms', 'rs_2', True)
+            
+            if self.config["sensors"]['rs_2']["low_th"] and self.data['rs_2']["scaled"] < float(self.config["sensors"]['rs_2']["low_th"]):
+                self.add_sim800_job('send_alarm_sms', 'rs_2', False)
+
+        except Exception as e:
+            print_colored(f"Exception from rs485 handle:", Cyan)
+            print_exception(e)
+        finally:
+            self.uart_lock = False
+            self.last_rs485_update = time()
+            self.rs485_update_running = False
+            if thread_lock.locked():
+                thread_lock.release()
+    
     def init_sd(self):
         while self.spi_lock:
             sleep_ms(100)
@@ -731,7 +803,6 @@ class App:
         
         self.sd_log_running = True
         try:
-#             gc.collect()
             while self.spi_lock:
                 sleep_ms(100)
             self.spi_lock = True
@@ -765,7 +836,7 @@ class App:
             
             raw_file.write(f'{tm[0]}-{tm[1]:02d}-{tm[2]:02d} {tm[4]:02d}:{tm[5]:02d}')
             scaled_file.write(f'{tm[0]}-{tm[1]:02d}-{tm[2]:02d} {tm[4]:02d}:{tm[5]:02d}')
-            
+            thread_lock.acquire()
             for sensor in self.config['sensor_list']:
                 # wdt.feed()
                 if sensor in self.data:
@@ -781,7 +852,9 @@ class App:
                 else:
                     raw_file.write(',')
                     scaled_file.write(',')
-
+                    
+            thread_lock.release()
+            
             raw_file.write('\r\n')
             scaled_file.write('\r\n')
             raw_file.close()
@@ -790,16 +863,15 @@ class App:
             print_colored(f"Exception from log_data:", Cyan)
             print_exception(e)
         finally:
+            self.last_sd_log = time()
+            self.sd_log_running = False
             self.spi_lock = False
-        
-        self.thread_lock.acquire()    
-        self.last_sd_log = time()
-        self.sd_log_running = False
-        self.thread_lock.release()
+            if thread_lock.locked():
+                thread_lock.release()
     
     def generate_data_sms(self):
         tm = rtc.datetime()
-        data_sms = f'{tm[0]},{tm[1]:02d},{tm[2]:02d},{tm[4]:02d}'
+        data_sms = f'{_device_id},{tm[0]},{tm[1]:02d},{tm[2]:02d},{tm[4]:02d}'
         idx = 1
         while True:
             for sensor in self.config['sensors']:
@@ -835,7 +907,7 @@ class App:
             uart.init(115200, tx=_sim800_tx, rx=_sim800_rx)
             self.uart_tx = _sim800_tx
             self.uart_rx = _sim800_rx
-            print_colored(f'switched to sim800 {self.uart_tx} {self.uart_rx}')
+            print_colored(f'switched to sim800 {self.uart_tx} {self.uart_rx} 115200')
 
         elif dst == 'rs485':
             print_colored('switch to rs485')
@@ -844,10 +916,10 @@ class App:
                 return
             machine.Pin(self.uart_tx, machine.Pin.OUT, value=1)
             machine.Pin(self.uart_rx, machine.Pin.OUT, value=1)
-            uart.init(115200, tx=_rs485_tx, rx=_rs485_rx)
+            uart.init(_rs485_baud, tx=_rs485_tx, rx=_rs485_rx)
             self.uart_tx = _rs485_tx
             self.uart_rx = _rs485_rx
-            print_colored(f'switched to rs485 {self.uart_tx} {self.uart_rx}')
+            print_colored(f'switched to rs485 {self.uart_tx} {self.uart_rx} {_rs485_baud}')
             
     def init_modem(self):
         try:
@@ -882,9 +954,7 @@ class App:
                     tm = list(map(int, result.content.split(',')))
                     rtc.datetime(tm)
                     print_colored(f'done {tm}', Yellow)
-                    self.thread_lock.acquire()
                     self.last_get_time = time()
-                    self.thread_lock.release()
                     break
             except Exception as e:
                 print_colored("Exception from get_time:", Yellow)
@@ -899,10 +969,9 @@ class App:
             try:
                 number, msg = modem.read_sms(i)
             except:
-                self.thread_lock.acquire()
                 self.last_sms_check = time()
-                self.thread_lock.release()
                 return
+            
             modem.delete_sms(i)
             
             if '#stat' in msg:
@@ -951,16 +1020,17 @@ class App:
                     if 'ts' in loc:
                         rtc.datetime(list(map(int, loc['ts'].split(','))))
                         self.sms_time_set = True
-                    self.thread_lock.acquire()
+                    thread_lock.acquire()
                     self.data['location'] = {'lat':loc['lat'], 'lon':loc['lon']}
-                    self.thread_lock.release()
+                    thread_lock.release()
                     print_colored(self.data['location'], Yellow)
+                    self.add_sim800_job('send_gps_sms', ())
                 except Exception as e:
                     print_colored('Failed parsing gps sms', Yellow)
                     print_exception(e)
-        self.thread_lock.acquire()  
-        self.last_sms_check = time()
-        self.thread_lock.release()
+                    self.last_sms_check = time()
+                    if thread_lock.locked():
+                        thread_lock.release()
           
     def post_data(self, *args):
         print_colored('Posting data', Yellow)
@@ -968,10 +1038,10 @@ class App:
             self.last_data_post = time()
             print_colored('no url set', Yellow)
             return
-        self.thread_lock.acquire()
+        thread_lock.acquire()
         self.data['timestamp'] = time() + 946672200
         unenc_data = bytearray(json.dumps(self.data))
-        self.thread_lock.release()
+        thread_lock.release()
 #         print(f'not encrypted data: {unenc_data}')
         # wdt.feed()
         key = ubinascii.unhexlify(self.config['enc']['key'])
@@ -982,8 +1052,8 @@ class App:
         
         unenc_data = ubinascii.hexlify(iv + unenc_data)
         
-        for _ in range(3):
-            try:
+        try:
+            for _ in range(3):
                 # wdt.feed()
                 modem.connect(self.config['gprs']['apn'])
                 # wdt.feed()
@@ -993,12 +1063,11 @@ class App:
                 if result.status_code == 200:
                     print_colored('done', Yellow)
                     break
-            except Exception as e:
-                print_colored("Exception from post_data:", Yellow)
-                print_exception(e)
-        self.thread_lock.acquire()       
-        self.last_data_post = time()
-        self.thread_lock.release()
+        except Exception as e:
+            print_colored("Exception from post_data:", Yellow)
+            print_exception(e)
+        finally:
+            self.last_data_post = time()
         
     def send_data_sms(self, *args):
         print_colored('sending data sms', Yellow)
@@ -1016,21 +1085,14 @@ class App:
         except Exception as e:
             print_colored("Exception from send_data_sms:", Yellow)
             print_exception(e)
-        self.thread_lock.acquire()    
-        self.last_data_sms = time()
-        self.thread_lock.release()
-    
-    def get_data_str(self):
-        s = ''
-        for sensor in self.data:
-            s += f'{sensor}: {self.data[sensor]}\r\n'
-        return s
+        finally:
+            self.last_data_sms = time()
     
     def check_update(self, *args):
         print_colored('checking for update', Yellow)
         
-        for _ in range(3):
-            try:
+        try:
+            for _ in range(3):
                 # wdt.feed()
                 modem.connect(self.config['gprs']['apn'])
                 # wdt.feed()
@@ -1057,12 +1119,12 @@ class App:
                     sleep(1)
                     machine.reset()
                     break
-            except Exception as e:
-                print_colored("Exception from check_update:", Yellow)
-                print_exception(e)
-        self.thread_lock.acquire()
-        self.last_update_check = time()
-        self.thread_lock.release()
+        except Exception as e:
+            print_colored("Exception from check_update:", Yellow)
+            print_exception(e)
+        finally:
+            self.last_update_check = time()
+
         
     def send_loc_request_sms(self, *args):
         print_colored('sending location request sms', Yellow)
@@ -1076,9 +1138,8 @@ class App:
         except Exception as e:
             print_colored('Exception from send loc request sms:', Yellow)
             print_exception(e)
-        self.thread_lock.acquire()
-        self.last_loc_request = time()
-        self.thread_lock.release()
+        finally:
+            self.last_loc_request = time()
     
     def send_alarm_sms(self, sensor, is_high):
         print_colored(f'sending alarm sms for {sensor}', Yellow)
@@ -1101,15 +1162,34 @@ class App:
             print_colored('Exception from send loc request sms:', Yellow)
             print_exception(e)
             
+    def send_gps_sms(self, *args):
+        print_colored('sending data sms', Yellow)
+        data = self.generate_data_sms()
+        data += f',{self.data["location"]["lat"]},{self.data["location"]["lon"]}'
+        # wdt.feed()
+        try:
+            if self.config['sms']['phone_1']:
+                print_colored('to phone #1', Yellow)
+                modem.send_sms(self.config['sms']['phone_1'], data)
+            # wdt.feed()
+            sleep(1)
+            if self.config['sms']['phone_2']:
+                print_colored('to phone #2', Yellow)
+                modem.send_sms(self.config['sms']['phone_2'], data)
+        except Exception as e:
+            print_colored("Exception from send_data_sms:", Yellow)
+            print_exception(e)
+            
     def add_sim800_job(self, name, *args):
         job = Job(name, getattr(self, name), args)
         if job not in self.sim800_jobs:
+            thread_lock.acquire()
             self.sim800_jobs.append(job)
+            thread_lock.release()
     
     def loop(self):
         while True:
             try:
-                self.thread_lock.acquire()
                 if self.config['sensors']['ra']['en']:
                     if not self.prcip_update_running and time() - self.last_prcip_update > _prcip_update_interval:
                         _thread.start_new_thread(self.update_percip, ())
@@ -1121,9 +1201,13 @@ class App:
                 if self.config['sdi12']['en']:
                     if not self.sdi12_update_running and time() - self.last_sdi12_update > _sdi12_update_interval:
                         _thread.start_new_thread(self.update_sdi, ())
-
+                
                 if not self.ais_update_running and time() - self.last_ais_update > _ais_update_interval:
                     _thread.start_new_thread(self.update_ais, ())
+                
+                if self.config['rs485']['en']:
+                    if not self.rs485_update_running and time() - self.last_rs485_update > _rs485_update_interval:
+                        _thread.start_new_thread(self.update_rs485, ())
                 
                 if self.sd_available:
                     if not self.sd_log_running and time() - self.last_sd_log > int(self.config['log']['interval']):
@@ -1140,8 +1224,8 @@ class App:
                     if time() - self.last_data_sms > int(self.config['sms']['interval']):
                         self.add_sim800_job('send_data_sms', ())
                         
-#                 if time() - self.last_loc_request > _loc_request_interval:
-#                     self.add_sim800_job('send_loc_request_sms', ())
+                if time() - self.last_loc_request > _loc_request_interval:
+                    self.add_sim800_job('send_loc_request_sms', ())
                     
                 if not self.sms_time_set:
                     if time() - self.last_get_time > _get_time_interval:
@@ -1152,15 +1236,11 @@ class App:
                 print_colored("Exception from main loop:")
                 print_exception(e)
             finally:
-                self.thread_lock.release()
                 sleep(5)
+
 # wdt.feed()
 print_reset_cause()
 print_colored(f'firmware version: {_firmware_version}')
-gc.collect()
-_thread.start_new_thread(app.run, (), {'debug':True, 'port':80})
-sleep_ms(100)
-gc.collect()
 # wdt.feed()
 main_app = App()
 main_app.init_sd()
@@ -1170,6 +1250,5 @@ main_app.init_sensors()
 main_app.init_percip_db()
 # wdt.feed()
 main_app.add_sim800_job('get_time', ())
-# _thread.start_new_thread(main_app.sim800_handler, ())
 sleep_ms(100)
-# main_app.loop()
+main_app.loop()

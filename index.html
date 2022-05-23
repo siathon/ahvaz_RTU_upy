@@ -100,6 +100,53 @@
                 document.getElementById('sdi12_change').disabled = false;
                 for(const sensor of sensor_list){
                     document.getElementById(sensor + '_en').disabled = false
+                    if(config.sensors[sensor].en){
+                        document.getElementById(sensor + '_disp_name').disabled = false;
+                        document.getElementById(sensor + '_unit').disabled = false;
+                        document.getElementById(sensor + '_a').disabled = false;
+                        document.getElementById(sensor + '_b').disabled = false;
+                        document.getElementById(sensor + '_' + 'sms_2').disabled = false;
+                        document.getElementById(sensor + '_' + 'sms_1').disabled = false;
+                        document.getElementById(sensor + '_' + 'sms_0').disabled = false;
+                        enable_sms(sensor, config.sensors[sensor].sms_fun + config.sensors[sensor].sms_raw)
+                        document.getElementById(sensor + '_high_th_en').disabled = false;
+                        enable_high_th(sensor);
+                        document.getElementById(sensor + '_low_th_en').disabled = false;
+                        enable_low_th(sensor);
+                    }
+                }
+            }
+            else{
+                document.getElementById('sdi12_addr').disabled = true;
+                document.getElementById('sdi12_scan').disabled = true;
+                document.getElementById('sdi12_change').disabled = true;
+                for (const sensor of sensor_list) {
+                    document.getElementById(sensor + '_en').disabled = true;
+                    document.getElementById(sensor + '_disp_name').disabled = true;
+                    document.getElementById(sensor + '_unit').disabled = true;
+                    document.getElementById(sensor + '_a').disabled = true;
+                    document.getElementById(sensor + '_b').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_2').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_1').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_0').disabled = true;
+                    document.getElementById(sensor + '_' + 'sms_order').disabled = true;
+                    document.getElementById(sensor + '_high_th_en').disabled = true;
+                    document.getElementById(sensor + '_high_th').disabled = true;
+                    document.getElementById(sensor + '_low_th_en').disabled = true;
+                    document.getElementById(sensor + '_low_th').disabled = true;
+                }
+                sms_order();
+            }
+        }
+
+        function enable_rs485(){
+            config.rs485.en = document.getElementById('rs485_en').checked;
+            let sensor_list = ['rs_1', 'rs_2']
+            if (config.rs485.en) {
+                document.getElementById('rs485_addr').disabled = false;
+                document.getElementById('rs485_baud').disabled = false;
+                for(const sensor of sensor_list){
+                    document.getElementById(sensor + '_en').disabled = false
                     document.getElementById(sensor + '_disp_name').disabled = false;
                     document.getElementById(sensor + '_unit').disabled = false;
                     document.getElementById(sensor + '_a').disabled = false;
@@ -115,9 +162,8 @@
                 }
             }
             else{
-                document.getElementById('sdi12_addr').disabled = true;
-                document.getElementById('sdi12_scan').disabled = true;
-                document.getElementById('sdi12_change').disabled = true;
+                document.getElementById('rs485_addr').disabled = true;
+                document.getElementById('rs485_baud').disabled = true;
                 for (const sensor of sensor_list) {
                     document.getElementById(sensor + '_en').disabled = true;
                     document.getElementById(sensor + '_disp_name').disabled = true;
@@ -155,7 +201,7 @@
                     document.getElementById('enc_key').value = config.enc.key;
 
                     document.getElementById('sdi12_en').checked = config.sdi12.en;
-                    const addr = parseInt(config.sdi12.addr);
+                    let addr = parseInt(config.sdi12.addr);
                     if (addr > 0) {
                         document.getElementById('sdi12_addr').value = addr;
                     }
@@ -164,6 +210,18 @@
                         document.getElementById('sdi12_scan').disabled = true;
                         document.getElementById('sdi12_change').disabled = true;
                     }
+
+                    document.getElementById('rs485_en').checked = config.rs485.en;
+                    addr = parseInt(config.rs485.addr);
+                    if (addr >= 0) {
+                        document.getElementById('rs485_addr').value = addr;
+                    }
+                    document.getElementById('rs485_baud').value = config.rs485.baud;
+                    if (!config.rs485.en) {
+                        document.getElementById('rs485_addr').disabled = true;
+                        document.getElementById('rs485_baud').disabled = true;
+                    }
+
                     var sensors_div = document.getElementById('sensors')
                     for (const sensor of config.sensor_list) {
                         let tag = document.createElement("strong");
@@ -409,6 +467,8 @@
                     for (const sensor of config.sensor_list) {
                         enable_sensor(sensor);
                     }
+                    enable_sdi();
+                    enable_rs485();
                 }
             };
             xhttp.open("GET", "/config.json", true);
@@ -438,14 +498,32 @@
                 });
             });
         }
+        
+        function restart() {
+            document.getElementById('msg_txt').innerHTML = '';
+            fetch("/restart", {
+                method: "GET",
+            }).then(res => {
+                res.json().then(data => {
+                    msg_text = document.getElementById('msg_txt');
+                    if(data.result){
+                        msg_text.style = "color: green;";
+                    }
+                    else{
+                        msg_text.style = "color: red;";
+                    }
+                    msg_text.innerHTML = data.msg;
+                });
+            });
+        }
     </script>
 </head>
 <body onload="load_config();">
     <div class="mt-4 p-5 rounded">
-        <form method="post" id="config_form">
+        <form id="config_form">
             <div>
                 <button type="submit" style="margin-left: 100px;width: 70px;height: 30px;background-color: chartreuse;">save</button>
-                <button style="margin-left: 10px;width: 70px;height: 30px;background-color: orange;">restart</button>
+                <button type="button" style="margin-left: 10px;width: 70px;height: 30px;background-color: orange;" onclick="restart();">restart</button>
             </div>
             <div id="msg">
                 <h3 id="msg_txt"></h3>
@@ -455,7 +533,7 @@
                 <hr>
                 <div style="margin-left: 50px;">
                     <label for="gprs_url">URL: </label>
-                    <input class="rounded-left" type="url" name="gprs_url" id="gprs_url" required>
+                    <input class="rounded-left" type="url" name="gprs_url" id="gprs_url">
                     <br>
                     <br>
                     <label for="gprs_apn">APN: </label>
@@ -520,6 +598,35 @@
                     <label for="sdi12_addr">Sensor address: </label>
                     <input class="rounded-left" type="number" name="sdi12_addr" id="sdi12_addr" style="width: 70px;">
                     <button type="button" class="btn btn-primary" id="sdi12_change" name="sdi12_change">Change</button>
+                    <br>
+                    <br>
+                </div>
+
+                <strong style="color: blue;">RS485</strong>
+                <hr>
+                <div style="margin-left: 50px;">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="" id="rs485_en" name="rs485_en" onchange="enable_rs485();">
+                        <label class="form-check-label" for="rs485_en">
+                             Enable
+                        </label>
+                    </div>
+                    <br>
+                    <label for="rs485_addr">Slave address: </label>
+                    <input class="rounded-left" type="number" name="rs485_addr" id="rs485_addr" style="width: 70px;">
+                    <br>
+                    <br>
+                    <label for="rs485_baud">Baudrate: </label>
+                    <select name="rs485_baud" id="rs485_baud">
+                        <option value="1200">1200</option>
+                        <option value="2400">2400</option>
+                        <option value="4800">4800</option>
+                        <option value="9600">9600</option>
+                        <option value="9600">19200</option>
+                        <option value="9600">38400</option>
+                        <option value="9600">57600</option>
+                        <option value="9600">115200</option>
+                    </select>
                     <br>
                     <br>
                 </div>

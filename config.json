@@ -1,12 +1,12 @@
 {
     "sms": {
-        "phone_1": "09367462008",
-        "phone_2": "09991436984",
+        "phone_1": "",
+        "phone_2": "",
         "interval": 300
     },
     "gprs": {
         "apn": "mtnirancell",
-        "url": "http://gw.abfascada.ir/ahv_rtu/getdata.php",
+        "url": "",
         "interval": 300
     },
     "log": {
@@ -16,8 +16,13 @@
         "key": "00112233445566778899aabbccddeeff"
     },
     "sdi12": {
-        "en": 1,
+        "en": 0,
         "addr": "1"
+    },
+    "rs485":{
+        "en": 1,
+        "addr": 1,
+        "baud": 9600
     },
     "sensor_list":[
         "pt",
@@ -29,6 +34,8 @@
         "ra",
         "ra_1",
         "ra_12",
+        "rs_1",
+        "rs_2",
         "s1",
         "s2",
         "s3",
@@ -41,19 +48,19 @@
     ],
     "sensors": {
         "pt": {
-            "en": 1,
+            "en": 0,
             "disp_name": "pt100",
             "unit": "c",
             "a": 1.0,
             "b": 0.0,
-            "sms_fun": 1,
+            "sms_fun": 0,
             "sms_raw": 0,
-            "sms_ord": 1,
+            "sms_ord": 0,
             "high_th": null,
             "low_th": null
         },
         "a1": {
-            "en": 1,
+            "en": 0,
             "disp_name": "adc_1",
             "unit": "",
             "a": 1.0,
@@ -62,10 +69,10 @@
             "sms_raw": 0,
             "sms_ord": 0,
             "high_th": null,
-            "low_th": 7
+            "low_th": null
         },
         "a2": {
-            "en": 1,
+            "en": 0,
             "disp_name": "adc_2",
             "unit": "",
             "a": 1.0,
@@ -73,11 +80,11 @@
             "sms_fun": 0,
             "sms_raw": 0,
             "sms_ord": 0,
-            "high_th": 3,
-            "low_th": 8
+            "high_th": null,
+            "low_th": null
         },
         "a3": {
-            "en": 1,
+            "en": 0,
             "disp_name": "adc_3",
             "unit": "",
             "a": 1.0,
@@ -89,7 +96,7 @@
             "low_th": null
         },
         "c1": {
-            "en": 1,
+            "en": 0,
             "disp_name": "420_1",
             "unit": "",
             "a": 1.0,
@@ -101,7 +108,7 @@
             "low_th": null
         },
         "c2": {
-            "en": 1,
+            "en": 0,
             "disp_name": "420_2",
             "unit": "",
             "a": 1.0,
@@ -113,7 +120,7 @@
             "low_th": null
         },
         "ra": {
-            "en": 1,
+            "en": 0,
             "disp_name": "percip total",
             "unit": "ml",
             "a": 1.0,
@@ -125,7 +132,7 @@
             "low_th": null
         },
         "ra_1": {
-            "en": 1,
+            "en": 0,
             "disp_name": "percip 1h",
             "unit": "ml",
             "a": 1.0,
@@ -137,7 +144,7 @@
             "low_th": null
         },
         "ra_12": {
-            "en": 1,
+            "en": 0,
             "disp_name": "percip 12h",
             "unit": "ml",
             "a": 1.0,
@@ -148,20 +155,44 @@
             "high_th": null,
             "low_th": null
         },
-        "s1": {
+        "rs_1": {
             "en": 1,
+            "disp_name": "RS485 #1",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "rs_2": {
+            "en": 1,
+            "disp_name": "RS485 #1",
+            "unit": "",
+            "a": 1.0,
+            "b": 0.0,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
+            "high_th": null,
+            "low_th": null
+        },
+        "s1": {
+            "en": 0,
             "disp_name": "SDI #1",
             "unit": "",
             "a": 1.0,
             "b": 0.0,
-            "sms_fun": 1,
+            "sms_fun": 0,
             "sms_raw": 0,
-            "sms_ord": 2,
+            "sms_ord": 0,
             "high_th": null,
             "low_th": null
         },
         "s2": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #2",
             "unit": "",
             "a": 1.0,
@@ -173,19 +204,19 @@
             "low_th": null
         },
         "s3": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #3",
             "unit": "",
             "a": 1.0,
             "b": 0.0,
-            "sms_fun": 1,
-            "sms_raw": 1,
-            "sms_ord": 3,
+            "sms_fun": 0,
+            "sms_raw": 0,
+            "sms_ord": 0,
             "high_th": null,
-            "low_th": 7
+            "low_th": null
         },
         "s4": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #4",
             "unit": "",
             "a": 1.0,
@@ -193,11 +224,11 @@
             "sms_fun": 0,
             "sms_raw": 0,
             "sms_ord": 0,
-            "high_th": 3,
-            "low_th": 8
+            "high_th": null,
+            "low_th": null
         },
         "s5": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #5",
             "unit": "",
             "a": 1.0,
@@ -209,7 +240,7 @@
             "low_th": null
         },
         "s6": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #6",
             "unit": "",
             "a": 1.0,
@@ -221,7 +252,7 @@
             "low_th": null
         },
         "s7": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #7",
             "unit": "",
             "a": 1.0,
@@ -233,7 +264,7 @@
             "low_th": null
         },
         "s8": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #8",
             "unit": "",
             "a": 1.0,
@@ -245,7 +276,7 @@
             "low_th": null
         },
         "s9": {
-            "en": 1,
+            "en": 0,
             "disp_name": "SDI #9",
             "unit": "",
             "a": 1.0,
