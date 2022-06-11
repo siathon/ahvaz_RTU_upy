@@ -202,7 +202,7 @@
 
                     document.getElementById('sdi12_en').checked = config.sdi12.en;
                     let addr = parseInt(config.sdi12.addr);
-                    if (addr > 0) {
+                    if (addr >= 0) {
                         document.getElementById('sdi12_addr').value = addr;
                     }
                     if (!config.sdi12.en) {
@@ -213,7 +213,7 @@
 
                     document.getElementById('rs485_en').checked = config.rs485.en;
                     addr = parseInt(config.rs485.addr);
-                    if (addr >= 0) {
+                    if (addr > 0) {
                         document.getElementById('rs485_addr').value = addr;
                     }
                     document.getElementById('rs485_baud').value = config.rs485.baud;
@@ -622,10 +622,14 @@
                         <option value="2400">2400</option>
                         <option value="4800">4800</option>
                         <option value="9600">9600</option>
-                        <option value="9600">19200</option>
-                        <option value="9600">38400</option>
-                        <option value="9600">57600</option>
-                        <option value="9600">115200</option>
+                        <option value="19200">19200</option>
+                        <option value="28800">28800</option>
+                        <option value="38400">38400</option>
+                        <option value="57600">57600</option>
+                        <option value="76800">76800</option>
+                        <option value="115200">115200</option>
+                        <option value="153600">153600</option>
+                        <option value="921600">921600</option>
                     </select>
                     <br>
                     <br>
