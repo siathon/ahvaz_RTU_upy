@@ -188,7 +188,8 @@
             xhttp.onreadystatechange = function() {
                 if (this.readyState == 4 && this.status == 200) {
                     config = JSON.parse(xhttp.responseText);
-                    document.getElementById('gprs_url').value = config.gprs.url;
+                    document.getElementById('device_id').value = config.device_id
+                    document.getElementById('gprs_server').value = config.gprs.server;
                     document.getElementById('gprs_apn').value = config.gprs.apn;
                     document.getElementById('gprs_interval').value = config.gprs.interval;
 
@@ -516,6 +517,50 @@
                 });
             });
         }
+    
+        function scan_sdi() {
+            msg_text = document.getElementById('sdi_scan_msg');
+            document.getElementById('scan_loading').hidden = false;
+            msg_text.innerHTML = ''
+            fetch("/scan_sdi", {
+                method: "GET",
+            }).then(res => {
+                res.json().then(data => {
+                    msg_text = document.getElementById('sdi_scan_msg');
+                    if(data.result){
+                        msg_text.style = "color: green;";
+                        msg_text.innerHTML = 'sensor address: ' + data.addr;
+                    }
+                    else{
+                        msg_text.style = "color: red;";
+                        msg_text.innerHTML = 'sensor not found';
+                    }
+                    document.getElementById('scan_loading').hidden = true;
+                });
+            });
+        }
+    
+        function change_sdi() {
+            addr = document.getElementById('sdi12_addr').value;
+            document.getElementById('change_loading').hidden = false;
+            fetch("/change_sdi", {
+                method: "POST",
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({"addr": addr})
+            }).then(res => {
+                res.json().then(data => {
+                    msg_text = document.getElementById('sdi_change_msg');
+                    if(data.result){
+                        msg_text.style = "color: green;";
+                    }
+                    else{
+                        msg_text.style = "color: red;";
+                    }
+                    msg_text.innerHTML = data.msg;
+                    document.getElementById('change_loading').hidden = true;
+                });
+            });
+        }
     </script>
 </head>
 <body onload="load_config();">
@@ -528,12 +573,18 @@
             <div id="msg">
                 <h3 id="msg_txt"></h3>
             </div>
+            <div style="margin-left: 50px;">
+                <label for="gprs_url">Device ID: </label>
+                <input class="rounded-left" type="text" name="device_id" id="device_id">
+                <br>
+                <br>
+            </div>
             <div class="form-group">
                 <strong style="color: blue;">GPRS</strong>
                 <hr>
                 <div style="margin-left: 50px;">
-                    <label for="gprs_url">URL: </label>
-                    <input class="rounded-left" type="url" name="gprs_url" id="gprs_url">
+                    <label for="gprs_server">SERVER: </label>
+                    <input class="rounded-left" type="url" name="gprs_server" id="gprs_server">
                     <br>
                     <br>
                     <label for="gprs_apn">APN: </label>
@@ -594,10 +645,16 @@
                         </label>
                     </div>
                     <br>
-                    <button type="button" class="btn btn-primary" id="sdi12_scan" name="sdi12_scan">Scan</button>
+                    <button type="button" class="btn btn-primary" id="sdi12_scan" name="sdi12_scan" onclick="scan_sdi();">Scan</button>
+                    <img src="loading.gif" width="20" height="20" id="scan_loading" hidden>
+                    <label for="sdi12_scan" id="sdi_scan_msg"></label>
+                    <br>
                     <label for="sdi12_addr">Sensor address: </label>
-                    <input class="rounded-left" type="number" name="sdi12_addr" id="sdi12_addr" style="width: 70px;">
-                    <button type="button" class="btn btn-primary" id="sdi12_change" name="sdi12_change">Change</button>
+                    <input class="rounded-left" type="number" name="sdi12_addr" id="sdi12_addr" style="width: 50px;">
+                    <button type="button" class="btn btn-primary" id="sdi12_change" name="sdi12_change" onclick="change_sdi();">Change</button>
+                    <img src="loading.gif" width="20" height="20" id="change_loading" hidden>
+                    <br>
+                    <label for="sdi12_change" id="sdi_change_msg"></label>
                     <br>
                     <br>
                 </div>

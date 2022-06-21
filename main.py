@@ -28,18 +28,21 @@ Magenta='\033[0;35m'
 Cyan='\033[0;36m'
 White='\033[0;37m'
 
-lv.log_register_print_cb(print)
-disp = ili9341(mosi=11, miso=13, clk=12, dc=9, rst=34, backlight=10, backlight_on=1, mhz=40, factor=32, hybrid=True, spihost=esp.VSPI_HOST, double_buffer=False)
+lv_red   = lv.color_make(255, 0, 0)
+lv_green = lv.color_make(0, 255, 0)
+lv_white = lv.color_make(255, 255, 255)
+lv_yellow= lv.color_make(255, 255, 0)
 
-_device_id = 'AHV121'
-_firmware_version = 0.1
+lv.log_register_print_cb(print)
+disp = ili9341(mosi=11, miso=13, clk=12, dc=9, rst=34, backlight=10, backlight_on=1, mhz=40, factor=32, hybrid=True, spihost=esp.VSPI_HOST, double_buffer=True)
+
+_firmware_version = 0.3
 _write_percip_interval = const(300)  # s
 _prcip_update_interval = const(30)   # s
 _sdi12_update_interval = const(30)   # s
 _pt100_update_interval = const(30)   # s
 _rs485_update_interval = const(30)   # s
 _check_update_interval = const(3600) # s
-_loc_request_interval  = const(43200)# s
 _ais_update_interval   = const(30)   # s
 _sms_check_interval    = const(300)  # s
 _get_time_interval     = const(86400)# s
@@ -53,7 +56,6 @@ _rs485_rx  = const(35)
 _rs485_baud = 9600
 
 ap = WLAN(AP_IF)
-ap.config(essid=_device_id)
 ap.config(max_clients=1)
 ap.active(False)
 
@@ -69,7 +71,7 @@ percip   = machine.Pin( 4, machine.Pin.IN, machine.Pin.PULL_UP)
 next_btn = machine.Pin(21, machine.Pin.IN, machine.Pin.PULL_UP)
 prev_btn = machine.Pin(33, machine.Pin.IN, machine.Pin.PULL_UP)
 
-spi2 = machine.SPI(2, 5000000, sck=machine.Pin(41), mosi=machine.Pin(40), miso=machine.Pin(42), phase=0)
+spi2 = machine.SPI(2, baudrate=1320000, sck=machine.Pin(41), mosi=machine.Pin(40), miso=machine.Pin(42), phase=0)
 sd_cs = machine.Pin(39, machine.Pin.OUT)
 pt_cs = machine.Signal(sd_cs, invert=True)
 pt = MAX31865(spi2, pt_cs, ref_resistor=470.0, wires=4)
@@ -80,16 +82,26 @@ AIs = {'a1': machine.ADC(machine.Pin(8),  atten=machine.ADC.ATTN_11DB),
        'c1': machine.ADC(machine.Pin(14), atten=machine.ADC.ATTN_11DB),
        'c2': machine.ADC(machine.Pin(3),  atten=machine.ADC.ATTN_11DB)}
 bat = machine.ADC(machine.Pin(1), atten=machine.ADC.ATTN_11DB)
-uart = machine.UART(1, tx=_sim800_tx, rx=_sim800_rx, baudrate=115200)
-modem = SIM800L.Modem(uart, _sim800_pw, MODEM_POWER_ON_PIN=_sim800_en)
+uart = machine.UART(1, tx=_sim800_tx, rx=_sim800_rx, baudrate=115200, rxbuf=1536)
+
+boot = machine.Pin(0, machine.Pin.IN)
+if boot() == 0:
+    wdt = None
+else:
+    wdt = machine.WDT(timeout=15000)
+
+def feed_wdt():
+    if wdt is not None:
+        wdt.feed( )
+        
+feed_wdt()
+modem = SIM800L.Modem(uart, _sim800_pw, MODEM_POWER_ON_PIN=_sim800_en, log_level='DEBUG', wdt=wdt)
 
 modbus = ModbusRTU(0, uart, ctrl_pin=45)
 
-# wdt = machine.# wdt(timeout=30000)
-
 
 thread_lock = _thread.allocate_lock()
-
+sdi_lock    = _thread.allocate_lock()
 def print_colored(text, color=Red):
     print(f'{color}{text}{White}')
 
@@ -116,7 +128,7 @@ def roundup(num_to_round) -> int:
     return num_to_round + _write_percip_interval - rm
 
 def check_config(config):
-    keys = ['sms', 'gprs', 'log', 'enc', 'sdi12', 'rs485', 'sensor_list', 'sensors']
+    keys = ['device_id', 'sms', 'gprs', 'log', 'enc', 'sdi12', 'rs485', 'sensor_list', 'sensors']
     sensors = ['pt', 'a1', 'a2', 'a3', 'c1', 'c2', 'ra', 'ra_1', 'ra_12', 'rs_1',
                's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']
     properties = ['en', 'disp_name', 'unit', 'a', 'b', 'sms_fun', 'sms_raw', 'sms_ord', 'high_th', 'low_th']
@@ -138,8 +150,8 @@ def check_config(config):
     
     if 'apn' not in config['gprs']:
         return False, 'apn not in gprs'
-    if 'url' not in config['gprs']:
-        return False, 'url not in gprs'
+    if 'server' not in config['gprs']:
+        return False, 'server not in gprs'
     if 'interval' not in config['gprs']:
         return False, 'interval not in gprs'
     try:
@@ -226,7 +238,8 @@ def save(microWebSrv2, request):
     print(data)
     config = load_config()
     try:
-        config['gprs']['url'] = data['gprs_url']
+        config['device_id'] = data['device_id']
+        config['gprs']['server'] = data['gprs_server']
         config['gprs']['apn'] = data['gprs_apn']
         config['gprs']['interval'] = int(data['gprs_interval'])
         
@@ -243,7 +256,7 @@ def save(microWebSrv2, request):
         
         config['rs485']['en'] = 1 if 'rs485_en' in data else 0
         config['rs485']['addr'] = int(data['rs485_addr']) if 'rs485_addr' in data else 1
-        config['rs485']['baud'] = int(data['rs485_baud'])
+        config['rs485']['baud'] = int(data['rs485_baud']) if 'rs485_baud' in data else 9600
         
         for sensor in config['sensor_list']:
             if f'{sensor}_en' in data:
@@ -299,6 +312,36 @@ def save(microWebSrv2, request):
 @WebRoute(GET, '/config.json')
 def config(microWebSrv2, request):
     request.Response.ReturnFile('config.json')
+    
+@WebRoute(GET, '/loading.gif')
+def loading(microWebSrv2, request):
+    request.Response.ReturnFile('loading.gif')
+    
+@WebRoute(GET, '/scan_sdi')
+def scan_sdi(microWebSrv2, request):
+    sdi_lock.acquire()
+    result  = sdi12.scan()
+    sdi_lock.release()
+    if result:
+        request.Response.ReturnOkJSON({'result': True, 'addr': result[0]})
+    else:
+        request.Response.ReturnOkJSON({'result': False})
+    
+@WebRoute(POST, '/change_sdi')
+def change_sdi(microWebSrv2, request):
+    data = request.GetPostedJSONObject()
+    sdi_lock.acquire()
+    result = sdi12.scan()
+    if result:
+        old_addr = result[0]
+        result = sdi12.change_address(old_addr, data['addr'])
+        if result:
+            request.Response.ReturnOkJSON({'result': True, 'msg': f'sensor address changed to {data["addr"]}'})
+        else:
+            request.Response.ReturnOkJSON({'result': False, 'msg': 'Failed to change address'})
+    else:
+        request.Response.ReturnOkJSON({'result': False, 'msg': 'Sensor not found'})
+    sdi_lock.release()
 
 @WebRoute(GET, '/restart')
 def restart(microWebSrv2, request):
@@ -326,11 +369,11 @@ class App:
         self.uart_lock = False
         self.data = {}
         self.config = {}
-        self.data['device_id'] = _device_id
         self.data['firmware_version'] = _firmware_version
         self.uart_tx = 18
         self.uart_rx = 17
         
+        self.last_prcip_write  = float('-inf')
         self.last_prcip_update = float('-inf')
         self.last_sdi12_update = float('-inf')
         self.last_pt100_update = float('-inf')
@@ -342,12 +385,12 @@ class App:
         self.last_get_time     = float('-inf')
         self.last_data_sms     = float('-inf')
         self.last_sd_log       = float('-inf')
-        self.last_loc_request  = float('-inf')
         
         self.prcip_update_running = False
         self.sdi12_update_running = False
         self.pt100_update_running = False
         self.rs485_update_running = False
+        self.loc_request_sms_sent = False
         self.ais_update_running   = False
         self.sd_log_running       = False
         self.server_running       = False
@@ -356,7 +399,11 @@ class App:
         self.prev_ready = False
         
         self.sms_time_set = False
+        self.time_set = False
         self.sim800_jobs = []
+        self.sensor_jobs = []
+        self.sensors_handler1_running = False
+        self.sensors_handler2_running = False
         
         self.decoder = lv.img.decoder_create()
         self.decoder.info_cb = get_png_info
@@ -399,7 +446,7 @@ class App:
         
         self.info_tab  = self.tabview.add_tab("info")
         label = lv.label(self.info_tab)
-        label.set_text(f"device id: {_device_id}")
+        label.set_text(f"device id: {self.config['device_id']}")
         label.set_pos(0, 0)
         label.set_size(200, 40)
         label.set_style_text_font(lv.font_montserrat_18, 0)
@@ -435,11 +482,25 @@ class App:
         label.set_style_text_font(lv.font_montserrat_18, 0)
         self.lcd_objs['lon'] = label
         
+        label = lv.label(self.info_tab)
+        label.set_text(f"radius:")
+        label.set_pos(0, 160)
+        label.set_size(60, 40)
+        label.set_style_text_font(lv.font_montserrat_18, 0)
+        
+        label = lv.label(self.info_tab)
+        label.set_text("")
+        label.set_pos(65, 160)
+        label.set_size(140, 40)
+        label.set_style_text_font(lv.font_montserrat_18, 0)
+        self.lcd_objs['rad'] = label
+        
         label = lv.label(self.scr)
         label.set_text("Initializing...")
         label.set_pos(5, 280)
         label.set_size(230, 20)
-        label.set_style_text_color(lv.color_make(255, 255, 0), 0)
+        label.set_long_mode(lv.label.LONG.CLIP)
+        label.set_style_text_color(lv_yellow, 0)
         self.lcd_objs['status'] = label
         
         self.wifi_icon = lv.img(main_app.scr)
@@ -452,9 +513,54 @@ class App:
         self.bat_label.set_pos(165, 0)
         self.bat_label.set_style_text_font(lv.font_montserrat_12, 0)
         
+        label = lv.label(self.scr)
+        label.set_text("sdi12")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(5, 295)
+        label.set_size(34, 25)
+        self.lcd_objs['sdi_th'] = label
+        
+        label = lv.label(self.scr)
+        label.set_text("pt100")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(45, 295)
+        label.set_size(39, 25)
+        self.lcd_objs['pt_th'] = label
+        
+        label = lv.label(self.scr)
+        label.set_text("AI")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(90, 295)
+        label.set_size(14, 25)
+        self.lcd_objs['ai_th'] = label
+        
+        label = lv.label(self.scr)
+        label.set_text("percip")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(110, 295)
+        label.set_size(47, 25)
+        self.lcd_objs['ra_th'] = label
+        
+        label = lv.label(self.scr)
+        label.set_text("rs485")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(165, 295)
+        label.set_size(40, 25)
+        self.lcd_objs['rs_th'] = label
+        
+        label = lv.label(self.scr)
+        label.set_text("log")
+        label.set_style_text_font(lv.font_montserrat_14, 0)
+        label.set_pos(210, 295)
+        label.set_size(23, 25)
+        if not self.sd_available:
+            label.set_style_text_color(lv_red, 0)
+        self.lcd_objs['sd_th'] = label
+        
         self.time_timer = lv.timer_create(self.update_time, 1000, None)
-        self.btn_timer = machine.Timer(2)
-        self.btn_timer.init(mode=machine.Timer.PERIODIC, period=200, callback=self.scan_btns)
+        self.btn_timer = lv.timer_create(self.scan_btns, 200, None)
+#         self.btn_timer = machine.Timer(2)
+#         self.btn_timer.init(mode=machine.Timer.PERIODIC, period=200, callback=self.scan_btns)
         
     def update_time(self, timer):
         try:
@@ -514,13 +620,15 @@ class App:
                 thread_lock.acquire()
                 self.sim800_jobs.pop(0)
                 thread_lock.release()
-        
+
     def init_sensors(self):
+        sdi_th = False
         if self.config['sdi12']['en']:
             idx = 0
             for i in range(9):
                 sensor = f's{i+1}'
                 if self.config['sensors'][sensor]['en']:
+                    sdi_th = True
                     self.data[f"s{i+1}"] = {"raw": None, "scaled": None, "warning": None}
                     label = lv.label(self.sdi_tab)
                     label.set_text(f"{self.config['sensors'][sensor]['disp_name']}:")
@@ -541,10 +649,41 @@ class App:
                     label.set_style_text_font(lv.font_montserrat_12, 0)
                     label.set_text(self.config['sensors'][sensor]['unit'])
                     idx += 1
-
+            if not sdi_th:
+                self.lcd_objs['sdi_th'].set_style_text_color(lv_red, 0)
+        else:
+            self.lcd_objs['sdi_th'].set_style_text_color(lv_red, 0)
+        
         idx = 0
-        for sensor in ['pt', 'a1', 'a2', 'a3', 'c1', 'c2']:
+        sensor = 'pt'
+        if self.config['sensors'][sensor]['en']:
+            self.data[sensor] = {"raw": None, "scaled": None, "warning": None}
+            label = lv.label(self.ai_tab)
+            label.set_text(f"{self.config['sensors'][sensor]['disp_name']}:")
+            label.set_pos(0, idx * 35)
+            label.set_size(95, 35)
+            label.set_style_text_font(lv.font_montserrat_18, 0)
+            label.set_long_mode(lv.label.LONG.DOT)
+            label = lv.label(self.ai_tab)
+            label.set_text('')
+            label.set_pos(100, idx * 35)
+            label.set_size(100, 35)
+            label.set_style_text_font(lv.font_montserrat_18, 0)
+            label.set_long_mode(lv.label.LONG.SCROLL_CIRCULAR)
+            self.lcd_objs[sensor] = label
+            label = lv.label(self.ai_tab)
+            label.set_pos(200, idx * 35 + 2)
+            label.set_size(30, 35)
+            label.set_style_text_font(lv.font_montserrat_12, 0)
+            label.set_text(self.config['sensors'][sensor]['unit'])
+            idx += 1
+        else:
+            self.lcd_objs['pt_th'].set_style_text_color(lv_red, 0)
+        
+        ai_th = False
+        for sensor in ['a1', 'a2', 'a3', 'c1', 'c2']:
             if self.config['sensors'][sensor]['en']:
+                ai_th = True
                 self.data[sensor] = {"raw": None, "scaled": None, "warning": None}
                 label = lv.label(self.ai_tab)
                 label.set_text(f"{self.config['sensors'][sensor]['disp_name']}:")
@@ -565,6 +704,9 @@ class App:
                 label.set_style_text_font(lv.font_montserrat_12, 0)
                 label.set_text(self.config['sensors'][sensor]['unit'])
                 idx += 1
+        if not ai_th:
+            self.lcd_objs['ai_th'].set_style_text_color(lv_red, 0)
+        
         idx = 0
         if self.config['sensors']['ra']['en']:
             self.percip_cnt = 0
@@ -590,7 +732,8 @@ class App:
                 label.set_style_text_font(lv.font_montserrat_12, 0)
                 label.set_text(self.config['sensors'][sensor]['unit'])
                 idx += 1
-            
+        else:
+            self.lcd_objs['ra_th'].set_style_text_color(lv_red, 0)
         
         if self.config['rs485']['en']:
             modbus._addr_list = [self.config['rs485']['addr']]
@@ -617,8 +760,10 @@ class App:
                 label.set_style_text_font(lv.font_montserrat_12, 0)
                 label.set_text(self.config['sensors'][sensor]['unit'])
                 idx += 1
+        else:
+            self.lcd_objs['rs_th'].set_style_text_color(lv_red, 0)
 
-        self.pin_timer = machine.Timer(1)
+        self.pin_timer = machine.Timer(3)
         self.pin_timer.init(mode=machine.Timer.PERIODIC, period=100, callback=self.scan_pins)
         print_colored("started scan pins timer")
             
@@ -666,7 +811,26 @@ class App:
             self.cur_tab = 3
         self.tabview.set_act(self.cur_tab, 0)
         _thread.start_new_thread(self.ap_and_srv_ctrl, (self.cur_tab == 3,))
+    
+    def create_old_percip_record(self):
+        try:
+            tm = roundup(time())
+            tm -= _write_percip_interval
+            tm = tm.to_bytes(4, 'big')
+            thread_lock.acquire()
+            if tm not in self.db:
+                print_colored(f'update percip db: {int.from_bytes(tm, "big")} -> {self.percip_tot}', Cyan)
+                self.db[tm] = self.percip_tot.to_bytes(4, 'big')
+                self.db.flush()
+                self.db_file.flush()
+        except Exception as e:
+            print_colored("Exception from create_old_percip_record:", Cyan)
+            print_exception(e)
+        finally:
+            if thread_lock.locked():
+                thread_lock.release()
             
+    
     def init_percip_db(self):
         try:
             self.db_file = open("percip.db", "r+b")
@@ -675,52 +839,69 @@ class App:
             
         self.db = btree.open(self.db_file)
         self.percip_cnt = 0
+        self.percip_cur = 0
+        self.percip_tot = 0
         keys = list(self.db)
         
         if keys:
-            self.percip_cnt = int.from_bytes(self.db[keys[-1]], 'big')
+            self.percip_tot = int.from_bytes(self.db[keys[-1]], 'big')
+        else:
+            print_colored(f'update percip db: 0 -> {self.percip_tot}', Cyan)
+            self.db[bytes(4)] = self.percip_tot.to_bytes(4, 'big')
+            self.db.flush()
+            self.db_file.flush()
         
-    def update_percip(self):
+    def update_percip(self, *args):
         self.prcip_update_running = True
-
+        self.lcd_objs['ra_th'].set_style_text_color(lv_green, 0)
         try:
-            a = self.config["sensors"]["ra"].get("a", 1.0)
-            b = self.config["sensors"]["ra"].get("b", 0.0)
+            a = self.config["sensors"]["ra"]["a"]
+            b = self.config["sensors"]["ra"]["b"]
 
             tm = roundup(time())
-            pr_to = self.percip_cnt
             thread_lock.acquire()
+            
             keys = list(self.db)
             if len(keys) >= 300:
                 print_colored(f"dblen: {len(keys)} remove 10 keys from db", Cyan)
                 for i in range(10):
                     del self.db[keys[i]]
-            self.db[tm.to_bytes(4, 'big')] = pr_to.to_bytes(4, 'big')
-            self.db.flush()
-            self.db_file.flush()
+                self.db.flush()
+                self.db_file.flush()
+            
+            self.percip_tot += self.percip_cnt
+            self.percip_cur += self.percip_cnt
+
+            if self.percip_cnt != 0 or tm.to_bytes(4, 'big') not in self.db:
+                print_colored(f'update percip db: {tm} -> {self.percip_tot}', Cyan) 
+                self.db[tm.to_bytes(4, 'big')] = self.percip_tot.to_bytes(4, 'big')
+                self.db.flush()
+                self.db_file.flush()
+            self.percip_cnt = 0
             tm_1h = tm - 3600
             
             while tm > tm_1h:
                 b_tm = tm_1h.to_bytes(4, 'big')
                 if b_tm in self.db:
-                    pr_1h = pr_to - int.from_bytes(self.db[b_tm], 'big')
+                    pr_1h = self.percip_tot - int.from_bytes(self.db[b_tm], 'big')
                     break
                 tm_1h += _write_percip_interval
             else:
-                pr_1h = 0
+                pr_1h = self.percip_cur
                 
             tm_12 = tm - 43200
             while tm > tm_12:
                 b_tm = tm_12.to_bytes(4, 'big')
                 if b_tm in self.db:
-                    pr_12 = pr_to - int.from_bytes(self.db[b_tm], 'big')
+                    pr_12 = self.percip_tot - int.from_bytes(self.db[b_tm], 'big')
                     break
                 tm_12 += _write_percip_interval
             else:
-                pr_12 = 0
+                pr_12 = self.percip_cur
             
-            self.data["ra"]["raw"] = round(pr_to, 2)
-            self.data["ra"]["scaled"] = round(a * pr_to + b, 2)
+            print_colored(f'percip -> t: {self.percip_tot} 1h: {pr_1h} 12h: {pr_12}', Cyan)
+            self.data["ra"]["raw"] = round(self.percip_tot, 2)
+            self.data["ra"]["scaled"] = round(a * self.percip_tot + b, 2)
             self.data["ra_1"]["raw"] = round(pr_1h, 2)
             self.data["ra_1"]["scaled"] = round(a * pr_1h + b, 2)
             self.data["ra_12"]["raw"] = round(pr_12, 2)
@@ -731,29 +912,30 @@ class App:
             self.lcd_objs["ra_12"].set_text(f'{self.data["ra_12"]["scaled"]}')
             
             if self.config["sensors"]["ra"]["high_th"] and self.data["ra"]["scaled"] > float(self.config["sensors"]["ra"]["high_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra"]["disp_name"], True)
+                self.add_sim800_job('send_alarm_sms', 'ra', True)
                 
             if self.config["sensors"]["ra_1"]["high_th"] and self.data["ra_1"]["scaled"] > float(self.config["sensors"]["ra_1"]["high_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra_1"]["disp_name"], True)
+                self.add_sim800_job('send_alarm_sms', 'ra_1', True)
                 
             if self.config["sensors"]["ra_12"]["high_th"] and self.data["ra_12"]["scaled"] > float(self.config["sensors"]["ra_12"]["high_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra_12"]["disp_name"], True)
+                self.add_sim800_job('send_alarm_sms', 'ra_12', True)
             
             if self.config["sensors"]["ra"]["low_th"] and self.data["ra"]["scaled"] < float(self.config["sensors"]["ra"]["low_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra"]["disp_name"], False)
+                self.add_sim800_job('send_alarm_sms', 'ra', False)
                 
             if self.config["sensors"]["ra_1"]["low_th"] and self.data["ra_1"]["scaled"] < float(self.config["sensors"]["ra_1"]["low_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra_1"]["disp_name"], False)
+                self.add_sim800_job('send_alarm_sms', 'ra_1', False)
                 
             if self.config["sensors"]["ra_12"]["low_th"] and self.data["ra_12"]["scaled"] < float(self.config["sensors"]["ra_12"]["low_th"]):
-                self.add_sim800_job('send_alarm_sms', self.config["sensors"]["ra_12"]["disp_name"], False)
-            thread_lock.release()
+                self.add_sim800_job('send_alarm_sms', 'ra_12', False)
+
         except Exception as e:
             print_colored("Exception from percip handle:", Cyan)
             print_exception(e)
         finally:
             self.last_prcip_update = time()
             self.prcip_update_running = False
+            self.lcd_objs['ra_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
     
@@ -763,23 +945,28 @@ class App:
         for key in keys:
             del self.db[key]
         self.percip_cnt = 0
+        self.percip_tot = 0
+        self.percip_cur = 0
         self.db.flush()
         self.db_file.flush()
         thread_lock.release()
     
-    def update_sdi(self):
+    def update_sdi(self, *args):
         self.sdi12_update_running = True
-
-        addr = str(self.config['sdi12'].get('addr', '0'))
+        self.lcd_objs['sdi_th'].set_style_text_color(lv_green, 0)
+        addr = str(self.config['sdi12']['addr'])
         retries = 0
+        sdi_lock.acquire()
         while retries < 10:
             try:
+                feed_wdt()
                 result = sdi12.measure_data(addr, request_crc = True)
                 print_colored(f'sdi {addr} data: {result}', Cyan)
                 if result[0] > 0:
                     cnt, data = result
                     break
                 sleep(1)
+                retries += 1
             except:
                 retries += 1
                 sleep(1)
@@ -787,7 +974,8 @@ class App:
         else:
             cnt = 0
             data = []
-        
+        sdi_lock.release()
+        feed_wdt()
         try:
             thread_lock.acquire()
             if data:
@@ -800,11 +988,11 @@ class App:
                         self.data[sensor]['scaled'] = round(a * data[i] + b, 2)
                         self.data[sensor]['warning'] = 0
                         if self.config["sensors"][sensor]["high_th"] and self.data[sensor]["scaled"] > float(self.config["sensors"][sensor]["high_th"]):
-                            self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], True)
+                            self.add_sim800_job('send_alarm_sms', sensor, True)
                             self.data[sensor]['warning'] = 2
                         
                         if self.config["sensors"][sensor]["low_th"] and self.data[sensor]["scaled"] < float(self.config["sensors"][sensor]["low_th"]):
-                            self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], False)
+                            self.add_sim800_job('send_alarm_sms', sensor, False)
                             self.data[sensor]['warning'] = 3
                         self.lcd_objs[sensor].set_text(f"{self.data[sensor]['scaled']}")
             else:
@@ -821,35 +1009,46 @@ class App:
         finally:
             self.last_sdi12_update = time()
             self.sdi12_update_running = False
+            self.lcd_objs['sdi_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
                         
-    def update_pt100(self):
+    def update_pt100(self, *args):
         self.pt100_update_running = True
-
+        self.lcd_objs['pt_th'].set_style_text_color(lv_green, 0)
         try:
-            a = self.config["sensors"]["pt"].get("a", 1.0)
-            b = self.config["sensors"]["pt"].get("b", 0.0)
+            a = self.config["sensors"]["pt"]["a"]
+            b = self.config["sensors"]["pt"]["b"]
 
             while self.spi_lock:
                 sleep_ms(100)
             self.spi_lock = True
-            spi2.init(phase=1)
-            tmp = pt.temperature
+            spi2.init(baudrate=5000000, phase=1)
+            for _ in range(3):
+                feed_wdt()
+                try:
+                    tmp = pt.temperature
+                    if -100 < tmp < 100:
+                        break
+                except:
+                    tmp = None
+            else:
+                tmp = None
+            
             self.spi_lock = False
             thread_lock.acquire()
-            if -100 < tmp < 100:
+            if tmp is not None:
                 print_colored(f'pt100: {tmp}', Cyan)
                 self.data['pt']['raw'] = round(tmp, 2)
                 self.data['pt']['scaled'] = round(a * tmp + b, 2)
                 self.data['pt']['warning'] = 0
                 
                 if self.config["sensors"]['pt']["high_th"] and self.data['pt']["scaled"] > float(self.config["sensors"]['pt']["high_th"]):
-                    self.add_sim800_job('send_alarm_sms', self.config["sensors"]['pt']["disp_name"], True)
+                    self.add_sim800_job('send_alarm_sms', 'pt', True)
                     self.data['pt']['warning'] = 2
                     
                 if self.config["sensors"]['pt']["low_th"] and self.data['pt']["scaled"] < float(self.config["sensors"]['pt']["low_th"]):
-                    self.add_sim800_job('send_alarm_sms', self.config["sensors"]['pt']["disp_name"], False)
+                    self.add_sim800_job('send_alarm_sms', 'pt', False)
                     self.data['pt']['warning'] = 3
                 self.lcd_objs['pt'].set_text(f'{self.data["pt"]["scaled"]}')
             else:
@@ -865,20 +1064,23 @@ class App:
         finally:
             self.last_pt100_update = time()
             self.pt100_update_running = False
+            self.lcd_objs['pt_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
 
-    def update_ais(self):
+    def update_ais(self, *args):
         self.ais_update_running = True
-
+        ai_th = False
         try:
             for sensor in ['a1', 'a2', 'a3']:
                 if sensor in self.config['sensors'] and self.config['sensors'][sensor]['en']:
+                    self.lcd_objs['ai_th'].set_style_text_color(lv_green, 0)
+                    ai_th = True
                     a = self.config["sensors"][sensor].get("a", 1.0)
                     b = self.config["sensors"][sensor].get("b", 0.0)
                     tmp = 0
                     for _ in range(10):
-                        tmp += AIs[sensor].read_u16()
+                        tmp += AIs[sensor].read_uv()
                         sleep_ms(10)
                     tmp /= 10
                     tmp = tmp * 0.000004636636 - (tmp * 0.000000022)
@@ -889,11 +1091,11 @@ class App:
                     print_colored(f'{sensor} : {self.data[sensor]}', Cyan)
                     self.lcd_objs[sensor].set_text(f'{self.data[sensor]["scaled"]}')
                     if self.config["sensors"][sensor]["high_th"] and self.data[sensor]["scaled"] > float(self.config["sensors"][sensor]["high_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], True)
+                        self.add_sim800_job('send_alarm_sms', sensor, True)
                         self.data[sensor]['warning'] = 2
                         
                     if self.config["sensors"][sensor]["low_th"] and self.data[sensor]["scaled"] < float(self.config["sensors"][sensor]["low_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], False)
+                        self.add_sim800_job('send_alarm_sms', sensor, False)
                         self.data[sensor]['warning'] = 3
                     thread_lock.release()
             for sensor in ['c1', 'c2']:
@@ -903,7 +1105,7 @@ class App:
                     b = self.config["sensors"][sensor].get("b", 0.0)
                     tmp = 0
                     for _ in range(10):
-                        tmp += AIs[sensor].read_u16()
+                        tmp += AIs[sensor].read_uv()
                         sleep_ms(10)
                     tmp *= 0.00000144
                     thread_lock.acquire()
@@ -913,10 +1115,10 @@ class App:
                     print_colored(f'{sensor} : {self.data[sensor]}', Cyan)
                     self.lcd_objs[sensor].set_text(f'{self.data[sensor]["scaled"]}')
                     if self.config["sensors"][sensor]["high_th"] and self.data[sensor]["scaled"] > float(self.config["sensors"][sensor]["high_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], True)
+                        self.add_sim800_job('send_alarm_sms', sensor, True)
                         self.data[sensor]['warning'] = 2
                     if self.config["sensors"][sensor]["low_th"] and self.data[sensor]["scaled"] < float(self.config["sensors"][sensor]["low_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"][sensor]["disp_name"], False)
+                        self.add_sim800_job('send_alarm_sms', sensor, False)
                         self.data[sensor]['warning'] = 3
                     thread_lock.release()
         except Exception as e:
@@ -925,22 +1127,29 @@ class App:
         finally:
             self.last_ais_update = time()
             self.ais_update_running = False
+            if ai_th:
+                self.lcd_objs['ai_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
     
-    def update_rs485(self):
+    def update_rs485(self, *args):
         self.rs485_update_running = True
-
+        self.lcd_objs['rs_th'].set_style_text_color(lv_green, 0)
         try:
             addr = self.config['rs485']['addr']
             while self.uart_lock:
                 sleep_ms(100)
             self.uart_lock = True
             self.switch_uart_to('rs485')
-            try:
-                rs_1, rs_2 = modbus._itf.read_holding_registers(addr, 1, 2)
-            except:
-                rs_1, rs_2 = None, None 
+            for _ in range(3):
+                try:
+                    feed_wdt()
+                    rs_1, rs_2 = modbus._itf.read_holding_registers(addr, 1, 2)
+                    break
+                except:
+                    rs_1, rs_2 = None, None
+            else:
+                rs_1, rs_2 = None, None
             self.uart_lock = False
             print_colored(f'rs485: {rs_1} {rs_2}', Cyan)
             
@@ -954,11 +1163,11 @@ class App:
                     self.data['rs_1']['warning'] = 0
                     self.lcd_objs['rs_1'].set_text(f'{self.data["rs_1"]["scaled"]}')
                     if self.config["sensors"]['rs_1']["high_th"] and self.data['rs_1']["scaled"] > float(self.config["sensors"]['rs_1']["high_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"]['rs_1']["disp_name"], True)
+                        self.add_sim800_job('send_alarm_sms', 'rs_1', True)
                         self.data['rs_1']['warning'] = 2
                         
                     if self.config["sensors"]['rs_1']["low_th"] and self.data['rs_1']["scaled"] < float(self.config["sensors"]['rs_1']["low_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"]['rs_1']["disp_name"], False)
+                        self.add_sim800_job('send_alarm_sms', 'rs_1', False)
                         self.data['rs_1']['warning'] = 3
                 else:
                     self.data['rs_1']['raw'] = None
@@ -975,11 +1184,11 @@ class App:
                     self.data['rs_2']['warning'] = 0
                     self.lcd_objs['rs_2'].set_text(f'{self.data["rs_2"]["scaled"]}')
                     if self.config["sensors"]['rs_2']["high_th"] and self.data['rs_2']["scaled"] > float(self.config["sensors"]['rs_2']["high_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"]['rs_2']["disp_name"], True)
+                        self.add_sim800_job('send_alarm_sms', 'rs_2', True)
                         self.data['rs_2']['warning'] = 2
                         
                     if self.config["sensors"]['rs_2']["low_th"] and self.data['rs_2']["scaled"] < float(self.config["sensors"]['rs_2']["low_th"]):
-                        self.add_sim800_job('send_alarm_sms', self.config["sensors"]['rs_2']["disp_name"], False)
+                        self.add_sim800_job('send_alarm_sms', 'rs_2', False)
                         self.data['rs_2']['warning'] = 3
                 else:
                     self.data['rs_2']['raw'] = None
@@ -993,6 +1202,7 @@ class App:
             self.uart_lock = False
             self.last_rs485_update = time()
             self.rs485_update_running = False
+            self.lcd_objs['rs_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
     
@@ -1001,7 +1211,7 @@ class App:
         while self.spi_lock:
             sleep_ms(100)
         self.spi_lock = True
-        spi2.init(phase=0)
+        spi2.init(baudrate=1320000, phase=0)
         
         try:
             sd = sdcard.SDCard(spi2, sd_cs)
@@ -1090,13 +1300,17 @@ class App:
 
     def log_data(self):
         print_colored('logging data to sd', Cyan)
-        
+        if not self.time_set:
+            print_colored('Time not set', Cyan)
+            self.last_sd_log = time()
+            return
+        self.lcd_objs['sd_th'].set_style_text_color(lv_green, 0)
         self.sd_log_running = True
         try:
             while self.spi_lock:
                 sleep_ms(100)
             self.spi_lock = True
-            spi2.init(phase=0)
+            spi2.init(baudrate=1320000, phase=0)
             
             tm = rtc.datetime()
             raw_filename = f'/sd/data/raw/{tm[0]}-{tm[1]:02d}-{tm[2]:02d}.csv'
@@ -1157,12 +1371,13 @@ class App:
             self.last_sd_log = time()
             self.sd_log_running = False
             self.spi_lock = False
+            self.lcd_objs['sd_th'].set_style_text_color(lv_white, 0)
             if thread_lock.locked():
                 thread_lock.release()
     
     def generate_data_sms(self):
         tm = rtc.datetime()
-        data_sms = f'{_device_id},{tm[0]},{tm[1]:02d},{tm[2]:02d},{tm[4]:02d}'
+        data_sms = f'{self.config["device_id"]},{tm[0]},{tm[1]:02d},{tm[2]:02d},{tm[4]:02d}'
         idx = 1
         while True:
             for sensor in self.config['sensors']:
@@ -1172,17 +1387,19 @@ class App:
                     break
             else:
                 break
-            if self.data[sensor]["scaled"]:
+            if self.data[sensor]["scaled"] is not None:
                 data_sms += f',{self.data[sensor]["scaled"]:.2f}'
             else:
                 data_sms += ','
                 
             if self.config['sensors'][sensor]['sms_raw']:
-                if self.data[sensor]["raw"]:
+                if self.data[sensor]["raw"] is not None:
                     data_sms += f'({self.data[sensor]["raw"]:.2f})'
                 else:
                     data_sms += '()'
             idx += 1
+        if 'bat' in self.data:
+            data_sms += f',{round(self.data["bat"], 2)}'
         return data_sms
     
     def switch_uart_to(self, dst):
@@ -1195,7 +1412,7 @@ class App:
                 return
             machine.Pin(self.uart_tx, machine.Pin.OUT, value=1)
             machine.Pin(self.uart_rx, machine.Pin.OUT, value=1)
-            uart.init(115200, tx=_sim800_tx, rx=_sim800_rx)
+            uart.init(115200, tx=_sim800_tx, rx=_sim800_rx, rxbuf=2048)
             self.uart_tx = _sim800_tx
             self.uart_rx = _sim800_rx
             print_colored(f'switched to sim800 {self.uart_tx} {self.uart_rx} 115200')
@@ -1241,24 +1458,29 @@ class App:
         self.last_data_post    = time()
         self.last_get_time     = time()
         self.last_data_sms     = time()
-        self.last_sd_log       = time()
+        self.last_sd_log       = float('-inf')
         self.last_loc_request  = time()
     
     def get_time(self, *args):
         print_colored('getting time', Yellow)
-        
+        if not self.config['gprs']['server']:
+            self.last_get_time = time()
+            print_colored('no server set', Yellow)
+            return
         for _ in range(3):
             try:
                 
                 modem.connect(self.config['gprs']['apn'])
                 
-                result = modem.http_request(f'http://gw.abfascada.ir/ahv_rtu/settings2.php?co={_device_id}')
+                result = modem.http_request(f'{self.config["gprs"]["server"]}/ahv_rtu/settings2.php?co={self.config["device_id"]}')
                 
                 modem.disconnect()
                 
                 if result.status_code == 200:
                     tm = list(map(int, result.content.split(',')))
                     rtc.datetime(tm)
+                    self.create_old_percip_record()
+                    self.time_set = True
                     print_colored(f'done {tm}', Yellow)
                     self.last_get_time = time()
                     self.reset_timestamps()
@@ -1266,8 +1488,31 @@ class App:
             except Exception as e:
                 print_colored("Exception from get_time:", Yellow)
                 print_exception(e)
-            
-        
+                
+    def get_location(self, *args):
+        print_colored('getting location', Yellow)
+        if not self.config['gprs']['server']:
+            print_colored('no server set', Yellow)
+            return
+        eng_data = modem.get_eng_data()
+#         eng_data = {'mccii': '432', 'mnc': '35', 'cellid': '5268', 'lac': '7747'}
+        for _ in range(3):
+            try:
+                modem.connect(self.config['gprs']['apn'])
+                result = modem.http_request(f'{self.config["gprs"]["server"]}/ahv_rtu/gps3.php', mode='POST', data=json.dumps(eng_data))
+                modem.disconnect()
+                if result.status_code == 200:
+                    self.data['location'] = json.loads(result.content)
+                    print_colored(f'done {self.data["location"]}', Yellow)
+                    if self.data['location']['lat'] is not None:
+                        self.lcd_objs['lat'].set_text(f'{self.data["location"]["lat"]}')
+                        self.lcd_objs['lon'].set_text(f'{self.data["location"]["lon"]}')
+                        self.lcd_objs['rad'].set_text(f'{self.data["location"]["radius"]}')
+                    break
+            except Exception as e:
+                print_colored("Exception from get_location:", Yellow)
+                print_exception(e)
+    
     def check_for_sms(self, *args):
         print_colored('checking sms command...', Yellow)
                 
@@ -1288,7 +1533,7 @@ class App:
                 
             elif '#gp' in msg:
                 print_colored('post sms received', Yellow)
-                self.post_data()
+                self.add_sim800_job('post_data', ())
             
             elif '#qu' in msg:
                 print_colored('csq sms received', Yellow)
@@ -1302,7 +1547,7 @@ class App:
                 
             elif '#update' in msg:
                 print_colored('update sms received', Yellow)
-                self.update()
+                self.add_sim800_job('check_update', ())
             
             elif '#zero' in msg:
                 print_colored('zero percip sms received', Yellow)
@@ -1327,6 +1572,8 @@ class App:
                     print_colored(loc, Yellow)
                     if 'ts' in loc:
                         rtc.datetime(list(map(int, loc['ts'].split(','))))
+                        self.create_old_percip_record()
+                        self.time_set = True
                         self.sms_time_set = True
                         self.reset_timestamps()
                     thread_lock.acquire()
@@ -1334,6 +1581,8 @@ class App:
                     thread_lock.release()
                     print_colored(self.data['location'], Yellow)
                     self.add_sim800_job('send_gps_sms', ())
+                    self.lcd_objs['lat'].set_text(f'{self.data["location"]["lat"]}')
+                    self.lcd_objs['lon'].set_text(f'{self.data["location"]["lon"]}')
                 except Exception as e:
                     print_colored('Failed parsing gps sms', Yellow)
                     print_exception(e)
@@ -1343,9 +1592,9 @@ class App:
           
     def post_data(self, *args):
         print_colored('Posting data', Yellow)
-        if not self.config['gprs']['url']:
+        if not self.config['gprs']['server']:
             self.last_data_post = time()
-            print_colored('no url set', Yellow)
+            print_colored('no server set', Yellow)
             return
         thread_lock.acquire()
         self.data['timestamp'] = time() + 946672200
@@ -1363,7 +1612,7 @@ class App:
         
         modem.connect(self.config['gprs']['apn'])
         
-        result = modem.http_request(self.config['gprs']['url'], mode='POST', data=f'data={unenc_data.decode()}', content_type='application/x-www-form-urlencoded')
+        result = modem.http_request(f"{self.config['gprs']['server']}/ahv_rtu/getdata_p2.php", mode='POST', data=f'data={unenc_data.decode()}', content_type='application/x-www-form-urlencoded')
         
         modem.disconnect()
         if result.status_code == 200:
@@ -1391,22 +1640,26 @@ class App:
     
     def check_update(self, *args):
         print_colored('checking for update', Yellow)
+        if not self.config['gprs']['server']:
+            self.last_update_check = time()
+            print_colored('no server set', Yellow)
+            self.lcd_objs['status'].set_text("Server not set")
+            return
         for _ in range(3):
-            
             modem.connect(self.config['gprs']['apn'])
-            
-            result = modem.http_request('http://fw.abfascada.ir/ahv_rtu2/version.php')
+            result = modem.http_request(f'{self.config["gprs"]["server"]}/ahv_rtu2/version.php')
             try:
                 new_version = float(result.content)
             except:
                 new_version = 0
             if new_version <= _firmware_version:
+                self.lcd_objs['status'].set_text("No updates found")
                 print_colored('no update found', Yellow)
                 modem.disconnect()
                 break
             print_colored(f'new version found: {new_version}', Yellow)
-            
-            result = modem.download(f'http://fw.abfascada.ir/ahv_rtu2/main_{new_version}.bin', f'main_{new_version}.py')
+            self.lcd_objs['status'].set_text(f"update found {new_version}")
+            result = modem.download(f'{self.config["gprs"]["server"]}/ahv_rtu2/main_{new_version}.bin', f'main_{new_version}.py', lcd_obj=self.lcd_objs['status'])
             
             modem.disconnect()
             if result.status_code == 200:
@@ -1416,6 +1669,7 @@ class App:
                 with open('/update.json', 'w') as f:
                     json.dump(update_info, f)
                 print_colored('restarting to apply update', Yellow)
+                self.lcd_objs['status'].set_text("restarting to apply update")
                 sleep(1)
                 machine.reset()
         self.last_update_check = time()
@@ -1428,12 +1682,12 @@ class App:
         
         modem.send_sms("30004505003188", json.dumps(cell_info))
         print_colored('done', Yellow)
-        self.last_loc_request = time()
+        self.loc_request_sms_sent = True
     
     def send_alarm_sms(self, sensor, is_high):
         print_colored(f'sending alarm sms for {sensor}', Yellow)
         tm = rtc.datetime()
-        text = f"{tm[4]:02d}:{tm[5]:02d}:{tm[6]:02d}: {_device_id} -> Alarm! {self.config['sensors'][sensor]['disp_name']}'s " + \
+        text = f"{tm[4]:02d}:{tm[5]:02d}:{tm[6]:02d}: {self.config['device_id']} -> Alarm! {self.config['sensors'][sensor]['disp_name']}'s " + \
                f"value is {self.data[sensor]['scaled']} and is {'higher' if is_high else 'lower'} than it's {'high' if is_high else 'low'} " + \
                f"threshold: {self.config['sensors'][sensor]['high_th'] if is_high else self.config['sensors'][sensor]['low_th']}"
         txt = self.lcd_objs['status'].get_text()
@@ -1465,7 +1719,7 @@ class App:
                     self.lcd_objs['status'].set_text(f"{txt}phone_2 fail")
                     print_colored('failed', Yellow)
                     print_exception(e)
-            
+        self.lcd_objs['status'].set_text(txt)
     def send_gps_sms(self, *args):
         print_colored('sending gps sms', Yellow)
         data = self.generate_data_sms()
@@ -1499,7 +1753,7 @@ class App:
                     self.lcd_objs['status'].set_text(f"{txt}phone_2 fail")
                     print_colored('failed', Yellow)
                     print_exception(e)
-            
+        self.lcd_objs['status'].set_text(txt)
     def add_sim800_job(self, name, *args):
         job = Job(name, getattr(self, name), args)
         if job not in self.sim800_jobs:
@@ -1521,7 +1775,7 @@ class App:
     
     def loop(self):
         while True:
-#             wdt.feed()
+            feed_wdt()
             try:
                 self.update_bat()
                 if self.config['sensors']['ra']['en']:
@@ -1530,40 +1784,44 @@ class App:
                 
                 if self.config['sensors']['pt']['en']:
                     if not self.pt100_update_running and time() - self.last_pt100_update > _pt100_update_interval:
-                        _thread.start_new_thread(self.update_pt100, ())
+                        self.update_pt100()
                 
                 if self.config['sdi12']['en']:
                     if not self.sdi12_update_running and time() - self.last_sdi12_update > _sdi12_update_interval:
-                        _thread.start_new_thread(self.update_sdi, ())
+                        self.update_sdi()
                 
                 if not self.ais_update_running and time() - self.last_ais_update > _ais_update_interval:
                     _thread.start_new_thread(self.update_ais, ())
                 
                 if self.config['rs485']['en']:
                     if not self.rs485_update_running and time() - self.last_rs485_update > _rs485_update_interval:
-                        _thread.start_new_thread(self.update_rs485, ())
+                        self.update_rs485()
                 
                 if self.sd_available:
                     if not self.sd_log_running and time() - self.last_sd_log > int(self.config['log']['interval']):
                         _thread.start_new_thread(self.log_data, ())
-                    
+                
+                if not self.sms_time_set:
+                    if time() - self.last_get_time > _get_time_interval:
+                        self.add_sim800_job('get_time', ())
+                
+                if 'location' not in self.data:
+                    self.add_sim800_job('get_location', ())
+                
                 if time() - self.last_sms_check > _sms_check_interval:
                     self.add_sim800_job('check_for_sms', ())
                 
-                if self.config['gprs']['url']:
+                if self.config['gprs']['server']:
                     if time() - self.last_data_post > int(self.config['gprs']['interval']):
                         self.add_sim800_job('post_data', ())
                         
                 if self.config['sms']['phone_1'] or self.config['sms']['phone_2']:
                     if time() - self.last_data_sms > int(self.config['sms']['interval']):
                         self.add_sim800_job('send_data_sms', ())
-                        
-                if time() - self.last_loc_request > _loc_request_interval:
-                    self.add_sim800_job('send_loc_request_sms', ())
-                    
-                if not self.sms_time_set:
-                    if time() - self.last_get_time > _get_time_interval:
-                        self.add_sim800_job('get_time', ())
+                
+                if ('location' not in self.data or ('location' in self.data and self.data['location']['lat'] is None)):
+                    if Job('get_location', None, ()) not in self.sim800_jobs and not self.loc_request_sms_sent:
+                        self.add_sim800_job('send_loc_request_sms', ())
                         
                 self.sim800_handler()
             except KeyboardInterrupt:
@@ -1572,9 +1830,9 @@ class App:
                 print_colored("Exception from main loop:")
                 print_exception(e)
             finally:
-                sleep(5)
+                sleep(3)
 
-# wdt.feed()
+feed_wdt()
 print_reset_cause()
 print_colored(f'firmware version: {_firmware_version}')
 
@@ -1585,12 +1843,13 @@ result, msg = check_config(main_app.config)
 if not result:
     print_colored(f'config invalid: {msg}')
     while True:
-#         wdt.feed()
+        feed_wdt()
         sleep(1)
+main_app.data['device_id'] = main_app.config['device_id']
 print_colored('config loaded successfully')
+ap.config(essid=main_app.config['device_id'])
 main_app.init_display()
 main_app.init_sensors()
 main_app.init_percip_db()
 
-main_app.add_sim800_job('get_time', ())
 main_app.loop()

@@ -93,23 +93,27 @@ ls = os.listdir('/')
 if 'sd' in ls:
     os.umount('/sd')
 if 'update.json' in ls:
-    print('update info file found')
-    import json
-    with open('/update.json') as f:
-        update_info = json.load(f)
-    if f'main_{update_info["new_version"]}.py' in ls:
-        init_lcd()
-        print('update file found')
-        os.rename('/main.py', f'/main_{update_info["old_version"]}.py')
-        print(f'renamed main.py to main_{update_info["old_version"]}.py')
-        os.rename(f'/main_{update_info["new_version"]}.py', '/main.py')
-        print(f'renamed main_{update_info["new_version"]}.py to main.py')
-        bar.set_value(100, lv.ANIM.ON)
-        sleep(1)
-    else:
-        print('update file not found')
     try:
-        os.remove('/update.json')
-    except:
-        print('cannot remove update_info.json')
-    machine.reset()
+        print('update info file found')
+        import json
+        with open('/update.json') as f:
+            update_info = json.load(f)
+        if f'main_{update_info["new_version"]}.py' in ls:
+            init_lcd()
+            print('update file found')
+            if 'main.py' in ls:
+                os.rename('/main.py', f'/main_{update_info["old_version"]}.py')
+                print(f'renamed main.py to main_{update_info["old_version"]}.py')
+            os.rename(f'/main_{update_info["new_version"]}.py', '/main.py')
+            print(f'renamed main_{update_info["new_version"]}.py to main.py')
+            bar.set_value(100, lv.ANIM.ON)
+            sleep(1)
+        else:
+            print('update file not found')
+        try:
+            os.remove('/update.json')
+        except:
+            print('cannot remove update_info.json')
+        machine.reset()
+    except Exception as e:
+        print_exception(e)
